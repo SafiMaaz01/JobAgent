@@ -1,0 +1,58 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Virtual environment
+.venv/
+venv/
+env/
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# VS Code local settings
+.vscode/
+
+# Python tooling
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Local databases
+*.db
+*.sqlite
+*.sqlite3
+
+# Personal resume
+data/resume/
+
+# Generated application packages
+data/applications/
+
+# Personal saved answers
+data/answers.json
+data/application_answers.json
+
+# Local job/application state
+data/*.json
+
+# Keep public configuration files
+!data/profile.example.json
+!data/sources.json
+
+# Generated cover letters
+data/applications/cover_letters/
+
+# Logs
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Temporary/test files
+*.tmp
+*.bak
