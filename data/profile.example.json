@@ -1,0 +1,69 @@
+{
+  "name": "YOUR NAME",
+  "email": "your.email@example.com",
+  "phone": "+91-XXXXXXXXXX",
+  "location": "Your City, India",
+  "target_roles": [
+    "Frontend Developer",
+    "React Developer",
+    "Next.js Developer"
+  ],
+  "skills": [
+    "JavaScript",
+    "TypeScript",
+    "React.js",
+    "Next.js",
+    "HTML5",
+    "CSS3",
+    "Tailwind CSS",
+    "Git",
+    "GitHub"
+  ],
+  "years_of_experience": 1,
+  "education": [
+    {
+      "degree": "Your Degree",
+      "institution": "Your Institution",
+      "start": "Month YYYY",
+      "end": "Month YYYY"
+    }
+  ],
+  "preferred_locations": [
+    "India",
+    "Remote"
+  ],
+  "remote_preference": "Prefer remote or hybrid",
+  "minimum_salary": "4 LPA",
+  "notice_period": "Immediate",
+  "work_authorization": "India",
+  "application_preferences": {
+    "okay_with_five_day_office": true,
+    "willing_to_relocate": true
+  },
+  "summary": "A short professional summary describing your experience, skills, and target role.",
+  "experience": [
+    {
+      "company": "YOUR COMPANY",
+      "role": "Your Role",
+      "start": "Month YYYY",
+      "end": "Month YYYY",
+      "achievements": [
+        "Describe a real achievement or responsibility.",
+        "Describe another real achievement or responsibility."
+      ]
+    }
+  ],
+  "projects": [
+    {
+      "name": "Your Project Name",
+      "technologies": [
+        "React",
+        "Next.js",
+        "TypeScript"
+      ]
+    }
+  ],
+  "github": "https://github.com/YOUR_USERNAME",
+  "linkedin": "https://www.linkedin.com/in/YOUR_USERNAME/",
+  "portfolio": "https://your-portfolio.example.com/"
+}
