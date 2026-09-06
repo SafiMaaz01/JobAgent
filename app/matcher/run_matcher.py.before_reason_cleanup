@@ -2190,42 +2190,6 @@ Return exactly this JSON structure:
         job_facts,
     )
 
-    # ---------------------------------------------------------
-    # Final education-reason cleanup
-    # ---------------------------------------------------------
-    #
-    # Academic education duration is separate from professional
-    # experience. Remove misleading prose that says a verified
-    # education background is missing merely because the exact
-    # wording was not present in the profile facts.
-    if candidate_facts["has_education"]:
-        reason = str(
-            result.get(
-                "reason",
-                "",
-            )
-        ).strip()
-
-        reason = re.sub(
-            r"\s*(?:while|although)\s+the\s+preferred\s+"
-            r"qualification\s+of\s+\d+\s+years?\s+of\s+"
-            r"(?:university|college|undergraduate|academic)\s+"
-            r"education\s+is\s+not\s+explicitly\s+stated"
-            r"(?:\s+in\s+the\s+candidate'?s\s+facts)?"
-            r"[^.]*\.",
-            " ",
-            reason,
-            flags=re.IGNORECASE,
-        )
-
-        reason = re.sub(
-            r"\s{2,}",
-            " ",
-            reason,
-        ).strip()
-
-        result["reason"] = reason
-
     # Deterministic facts are authoritative in the final details.
     result["seniority_level"] = job_facts["seniority_level"]
     result["employment_type"] = job_facts["employment_type"]

@@ -40,6 +40,7 @@ def initialize_database():
             recommendation TEXT,
 
             matched_at TEXT,
+            match_details TEXT,
 
             review_status TEXT DEFAULT 'pending',
             reviewed_at TEXT,
@@ -50,8 +51,8 @@ def initialize_database():
         )
     """)
 
-    # Add approval columns to existing databases created before
-    # the approval workflow was introduced.
+    # Add columns to existing databases created before
+    # the approval and matcher-detail workflows were introduced.
     columns = {
         row["name"]
         for row in connection.execute("PRAGMA table_info(jobs)")
@@ -65,6 +66,11 @@ def initialize_database():
     if "reviewed_at" not in columns:
         connection.execute(
             "ALTER TABLE jobs ADD COLUMN reviewed_at TEXT"
+        )
+
+    if "match_details" not in columns:
+        connection.execute(
+            "ALTER TABLE jobs ADD COLUMN match_details TEXT"
         )
 
     connection.commit()

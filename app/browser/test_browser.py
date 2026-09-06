@@ -688,19 +688,6 @@ def run_application(package_path):
 
         select_react_option(
             form_page,
-            "#question_67942592",
-            "No",
-            (
-                "No, I do not require visa "
-                "sponsorship now or in the future "
-                "to continue working in the country "
-                "where this role is based."
-            ),
-            "Visa sponsorship",
-        )
-
-        select_react_option(
-            form_page,
             "#question_67942587",
             "Yes",
             "Yes",
@@ -829,12 +816,7 @@ def run_application(package_path):
             (
                 "#question_67942592",
                 "Visa sponsorship",
-                (
-                    "No, I do not require visa "
-                    "sponsorship now or in the future "
-                    "to continue working in the country "
-                    "where this role is based."
-                ),
+                "",
             ),
             (
                 "#question_67942587",

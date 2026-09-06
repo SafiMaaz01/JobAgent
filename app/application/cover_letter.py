@@ -18,9 +18,90 @@ COVER_LETTERS_DIR = (
     / "cover_letters"
 )
 
-COVER_LETTER_MODEL = "gpt-oss:latest"
+COVER_LETTER_MODEL = "qwen2.5:7b"
 
 OLLAMA_URL = "http://localhost:11434/api/generate"
+
+
+# Phrases that tend to produce generic or exaggerated letters.
+FORBIDDEN_PHRASES = [
+    "passionate",
+    "detail-oriented",
+    "cutting-edge",
+    "industry-leading",
+    "revolutionary",
+    "world-class",
+    "perfect fit",
+    "ideal candidate",
+    "dream candidate",
+    "excited to join",
+    "excited about the opportunity",
+    "thrilled to join",
+    "thrilled to apply",
+    "enthusiastic about joining",
+    "passionate about your mission",
+    "innovative solutions",
+    "innovative technology",
+    "state-of-the-art",
+    "highly experienced",
+    "extensively experienced",
+    "seasoned developer",
+    "seasoned professional",
+]
+
+
+# Phrases that commonly indicate unsupported claims or model padding.
+SUSPICIOUS_PHRASES = [
+    "significantly improved",
+    "substantially improved",
+    "dramatically improved",
+    "greatly improved",
+    "markedly improved",
+    "significantly enhanced",
+    "substantially enhanced",
+    "dramatically enhanced",
+    "greatly enhanced",
+    "markedly enhanced",
+    "significantly increased",
+    "substantially increased",
+    "dramatically increased",
+    "greatly increased",
+    "markedly increased",
+    "significantly reduced",
+    "substantially reduced",
+    "dramatically reduced",
+    "greatly reduced",
+    "markedly reduced",
+    "significant impact",
+    "substantial impact",
+    "major impact",
+    "measurable impact",
+    "proven track record",
+    "strong track record",
+    "demonstrated my ability to",
+    "showcased my ability to",
+    "honed my ability to",
+    "made a significant impact",
+    "drive meaningful impact",
+    "deliver exceptional",
+    "deliver outstanding",
+    "high-performing applications",
+    "high-performing systems",
+    "high-performing solutions",
+    "robust and scalable",
+    "scalable and performant",
+]
+
+UNSUPPORTED_RESULT_PATTERNS = [
+    r"\bsignificantly\b.{0,80}\b(improv|enhanc|increas|reduc)",
+    r"\bsubstantially\b.{0,80}\b(improv|enhanc|increas|reduc)",
+    r"\bdramatically\b.{0,80}\b(improv|enhanc|increas|reduc)",
+    r"\bgreatly\b.{0,80}\b(improv|enhanc|increas|reduc)",
+    r"\bmarkedly\b.{0,80}\b(improv|enhanc|increas|reduc)",
+    r"\b(measurably|measurable)\b.{0,80}\b(improv|enhanc|increas|reduc)",
+    r"\b(high[- ]performing)\b",
+    r"\b(exceptional|outstanding)\s+(results|performance|solutions|applications)",
+]
 
 
 def load_profile():
@@ -28,16 +109,21 @@ def load_profile():
         "r",
         encoding="utf-8",
     ) as file:
-        return json.load(file)
+        data = json.load(file)
+
+    if not isinstance(data, dict):
+        raise ValueError(
+            "profile.json must contain a JSON object."
+        )
+
+    return data
 
 
 def ask_cover_letter_ai(prompt: str) -> str:
     """
-    Generate a cover letter using the dedicated local
-    GPT-OSS model.
+    Generate a fresh cover letter using the local Qwen model.
 
-    Job matching remains completely separate and continues
-    using qwen2.5:7b.
+    This model is intentionally separate from the job matcher.
     """
 
     response = requests.post(
@@ -46,10 +132,10 @@ def ask_cover_letter_ai(prompt: str) -> str:
             "model": COVER_LETTER_MODEL,
             "prompt": prompt,
             "stream": False,
-            "think": False,
             "options": {
-                "temperature": 0.55,
-                "top_p": 0.9,
+                "temperature": 0.3,
+                "top_p": 0.85,
+                "num_predict": 500,
             },
         },
         timeout=600,
@@ -68,17 +154,23 @@ def ask_cover_letter_ai(prompt: str) -> str:
         return final_response
 
     raise ValueError(
-        "The cover-letter model returned no final response. "
+        "The cover-letter model returned an empty response. "
         f"Ollama response keys: {list(data.keys())}"
     )
 
 
 def clean_cover_letter(text: str) -> str:
+    """
+    Remove common model formatting mistakes without rewriting
+    the actual content.
+    """
+
     if not text:
         return ""
 
     text = text.strip()
 
+    # Remove Markdown code fences.
     text = re.sub(
         r"^```(?:text|plaintext)?\s*",
         "",
@@ -95,13 +187,16 @@ def clean_cover_letter(text: str) -> str:
 
     text = text.strip()
 
+    # Remove an accidental Subject line.
     text = re.sub(
-        r"^subject\s*:\s*.*\n+",
+        r"^subject\s*:\s*.*(?:\r?\n)+",
         "",
         text,
+        count=1,
         flags=re.IGNORECASE,
     )
 
+    # Remove common model preambles.
     preamble_patterns = [
         r"^here is (?:a|the) .*?cover letter.*?:\s*",
         r"^here's (?:a|the) .*?cover letter.*?:\s*",
@@ -118,6 +213,48 @@ def clean_cover_letter(text: str) -> str:
             flags=re.IGNORECASE | re.DOTALL,
         )
 
+    # Remove a generated resume-style header if Qwen ignores
+    # the instruction and produces one.
+    header_patterns = [
+        r"^\[Your Name\]\s*",
+        r"^\[Your Address\]\s*",
+        r"^\[City, State, ZIP Code\]\s*",
+        r"^\[Email Address\]\s*",
+        r"^\[Phone Number\]\s*",
+        r"^\[Date\]\s*",
+        r"^Hiring Manager\s*",
+        r"^\[Company Address\]\s*",
+        r"^\[Company Address\]\s*\n",
+    ]
+
+    for pattern in header_patterns:
+        text = re.sub(
+            pattern,
+            "",
+            text,
+            count=1,
+            flags=re.IGNORECASE,
+        )
+
+    # If the model somehow starts before the salutation,
+    # retain the actual letter body.
+    dear_match = re.search(
+        r"\bDear Hiring Team,\s*",
+        text,
+        flags=re.IGNORECASE,
+    )
+
+    if dear_match:
+        text = text[dear_match.start():]
+
+    # Normalize excessive blank lines.
+    text = re.sub(
+        r"\n{3,}",
+        "\n\n",
+        text,
+    )
+
+    # Remove accidental surrounding quotes.
     if (
         len(text) >= 2
         and text.startswith('"')
@@ -125,46 +262,35 @@ def clean_cover_letter(text: str) -> str:
     ):
         text = text[1:-1].strip()
 
-    text = re.sub(
-        r"\n{3,}",
-        "\n\n",
-        text,
-    )
-
     return text.strip()
 
 
-def validate_cover_letter(
+def normalize_for_matching(text: str) -> str:
+    return re.sub(
+        r"\s+",
+        " ",
+        text.lower(),
+    ).strip()
+
+
+def phrase_present(
+    text: str,
+    phrase: str,
+) -> bool:
+    normalized_text = normalize_for_matching(text)
+    normalized_phrase = normalize_for_matching(phrase)
+
+    return normalized_phrase in normalized_text
+
+
+def validate_no_placeholders(
     cover_letter: str,
-    profile: dict,
-    job: dict,
 ) -> None:
-    """
-    Conservative validation.
-
-    This catches obvious model failures. The generation prompt
-    remains responsible for factual grounding.
-    """
-
-    if not cover_letter:
-        raise ValueError(
-            "The AI returned an empty cover letter."
-        )
-
-    if len(cover_letter) < 300:
-        raise ValueError(
-            "The generated cover letter is unexpectedly short."
-        )
-
-    if len(cover_letter) > 5000:
-        raise ValueError(
-            "The generated cover letter is unexpectedly long."
-        )
-
     forbidden_patterns = [
         r"\[insert",
         r"\[your ",
         r"<your ",
+        r"<insert",
         r"\bplaceholder\b",
         r"\bcompany name\b",
         r"\bjob title\b",
@@ -174,6 +300,10 @@ def validate_cover_letter(
         r"\[position\]",
         r"\[candidate\]",
         r"\[name\]",
+        r"\[address\]",
+        r"\[email\]",
+        r"\[phone\]",
+        r"\[date\]",
     ]
 
     for pattern in forbidden_patterns:
@@ -184,10 +314,14 @@ def validate_cover_letter(
         ):
             raise ValueError(
                 "The generated cover letter contains "
-                "an unresolved placeholder."
+                f"an unresolved placeholder: {pattern}"
             )
 
-    forbidden_meta_patterns = [
+
+def validate_no_model_meta(
+    cover_letter: str,
+) -> None:
+    meta_patterns = [
         r"^here is",
         r"^here's",
         r"^sure[,!]",
@@ -195,9 +329,11 @@ def validate_cover_letter(
         r"^of course[,!]",
         r"^cover letter:",
         r"^final answer:",
+        r"^below is",
+        r"^here's a polished",
     ]
 
-    for pattern in forbidden_meta_patterns:
+    for pattern in meta_patterns:
         if re.search(
             pattern,
             cover_letter,
@@ -208,6 +344,64 @@ def validate_cover_letter(
                 "model meta-commentary."
             )
 
+
+def validate_structure(
+    cover_letter: str,
+    profile: dict,
+) -> None:
+    if not cover_letter:
+        raise ValueError(
+            "The AI returned an empty cover letter."
+        )
+
+    if len(cover_letter) < 600:
+        raise ValueError(
+            "The generated cover letter is too short."
+        )
+
+    if len(cover_letter) > 3000:
+        raise ValueError(
+            "The generated cover letter is too long."
+        )
+
+    if not re.search(
+        r"^Dear Hiring Team,",
+        cover_letter,
+        flags=re.IGNORECASE,
+    ):
+        raise ValueError(
+            "The generated cover letter does not start "
+            "with 'Dear Hiring Team,'."
+        )
+
+    expected_signature = (
+        "Best regards,\n"
+        "MD SAFI MAAZ"
+    )
+
+    if not cover_letter.rstrip().endswith(
+        expected_signature
+    ):
+        raise ValueError(
+            "The generated cover letter does not end with "
+            "'Best regards, MD SAFI MAAZ'."
+        )
+
+    paragraph_blocks = [
+        block.strip()
+        for block in re.split(
+            r"\n\s*\n",
+            cover_letter.strip(),
+        )
+        if block.strip()
+    ]
+
+    if len(paragraph_blocks) != 4:
+        raise ValueError(
+            "The generated cover letter must contain "
+            "exactly four paragraphs."
+        )
+
     name = str(
         profile.get(
             "name",
@@ -215,22 +409,17 @@ def validate_cover_letter(
         )
     ).strip()
 
-    if name:
-        name_parts = [
-            part
-            for part in name.split()
-            if len(part) >= 2
-        ]
+    if name and name.lower() not in cover_letter.lower():
+        raise ValueError(
+            "The generated cover letter does not contain "
+            "the candidate name."
+        )
 
-        if name_parts and not any(
-            part.lower() in cover_letter.lower()
-            for part in name_parts
-        ):
-            raise ValueError(
-                "The generated cover letter does not "
-                "appear to reference the candidate."
-            )
 
+def validate_company_and_role(
+    cover_letter: str,
+    job: dict,
+) -> None:
     company = str(
         job.get(
             "company",
@@ -240,8 +429,8 @@ def validate_cover_letter(
 
     if company and company.lower() not in cover_letter.lower():
         raise ValueError(
-            "The generated cover letter does not "
-            "reference the target company."
+            "The generated cover letter does not reference "
+            f"the target company: {company}"
         )
 
     title = str(
@@ -251,516 +440,843 @@ def validate_cover_letter(
         )
     ).strip()
 
-    if title:
-        title_words = [
-            word
-            for word in re.findall(
-                r"[A-Za-z0-9]+",
-                title,
-            )
-            if len(word) >= 3
-        ]
+    if not title:
+        return
 
-        if title_words:
-            matching_words = sum(
-                1
-                for word in title_words
-                if word.lower()
-                in cover_letter.lower()
+    title_words = [
+        word.lower()
+        for word in re.findall(
+            r"[A-Za-z0-9]+",
+            title,
+        )
+        if len(word) >= 3
+    ]
+
+    if not title_words:
+        return
+
+    matching_words = sum(
+        1
+        for word in title_words
+        if word in cover_letter.lower()
+    )
+
+    if matching_words == 0:
+        raise ValueError(
+            "The generated cover letter does not appear "
+            "to reference the target role."
+        )
+
+
+def validate_forbidden_language(
+    cover_letter: str,
+) -> None:
+    for phrase in FORBIDDEN_PHRASES:
+        if phrase_present(
+            cover_letter,
+            phrase,
+        ):
+            raise ValueError(
+                "The generated cover letter contains "
+                f"generic or exaggerated wording: '{phrase}'."
             )
 
-            if matching_words == 0:
-                raise ValueError(
-                    "The generated cover letter does not "
-                    "appear to reference the target role."
+
+def validate_suspicious_language(
+    cover_letter: str,
+) -> None:
+    for phrase in SUSPICIOUS_PHRASES:
+        if phrase_present(
+            cover_letter,
+            phrase,
+        ):
+            raise ValueError(
+                "The generated cover letter contains "
+                f"potentially unsupported wording: '{phrase}'."
+            )
+
+def validate_unsupported_results(
+    cover_letter: str,
+) -> None:
+    normalized = normalize_for_matching(
+        cover_letter
+    )
+
+    for pattern in UNSUPPORTED_RESULT_PATTERNS:
+        if re.search(
+            pattern,
+            normalized,
+            flags=re.IGNORECASE,
+        ):
+            raise ValueError(
+                "The generated cover letter contains "
+                "an unsupported performance or outcome claim."
+            )
+
+def validate_no_resume_header(
+    cover_letter: str,
+) -> None:
+    header_indicators = [
+        "[your name]",
+        "[your address]",
+        "[city, state, zip code]",
+        "[email address]",
+        "[phone number]",
+        "[date]",
+        "hiring manager",
+        "[company address]",
+    ]
+
+    normalized = normalize_for_matching(
+        cover_letter
+    )
+
+    for indicator in header_indicators:
+        if indicator in normalized:
+            raise ValueError(
+                "The generated cover letter contains "
+                "a resume-style header."
+            )
+
+def validate_project_boundaries(
+    cover_letter: str,
+    profile: dict,
+) -> None:
+    """
+    Prevent clear employer/project fact mixing.
+
+    Validation is paragraph-aware so facts belonging to different
+    employers can safely appear in different paragraphs.
+    """
+
+    paragraphs = [
+        normalize_for_matching(block)
+        for block in re.split(
+            r"\n\s*\n",
+            cover_letter.strip(),
+        )
+        if block.strip()
+    ]
+
+    # --------------------------------------------------------------
+    # Employer/project association checks
+    # --------------------------------------------------------------
+
+    experience = profile.get(
+        "experience",
+        [],
+    )
+
+    projects = profile.get(
+        "projects",
+        [],
+    )
+
+    employer_names = [
+        str(item.get("company", "")).strip()
+        for item in experience
+        if item.get("company")
+    ]
+
+    project_names = [
+        str(item.get("name", "")).strip()
+        for item in projects
+        if item.get("name")
+    ]
+
+    for paragraph in paragraphs:
+        for project_name in project_names:
+            project = normalize_for_matching(
+                project_name
+            )
+
+            if not project:
+                continue
+
+            if project not in paragraph:
+                continue
+
+            for employer_name in employer_names:
+                employer = normalize_for_matching(
+                    employer_name
                 )
 
+                if not employer:
+                    continue
 
-def build_candidate_evidence(profile: dict) -> dict:
-    """
-    Preserve strict evidence boundaries.
+                if employer in paragraph:
+                    raise ValueError(
+                        "The generated cover letter appears "
+                        f"to associate personal project "
+                        f"'{project_name}' with employer "
+                        f"'{employer_name}' in the same "
+                        "paragraph."
+                    )
 
-    The model must not assume that a skill, technology,
-    responsibility, or achievement listed in one section
-    belongs to another section.
+    # --------------------------------------------------------------
+    # Grievance management system belongs to Sparrow Softtech.
+    #
+    # Only reject it when IT FOSTERS is mentioned in the SAME
+    # paragraph, which indicates an actual attribution problem.
+    # --------------------------------------------------------------
+
+    grievance_terms = [
+        "grievance management system",
+        "grievance system",
+        "submitting and tracking grievances",
+    ]
+
+    it_fosters_names = [
+        "it fosters web solutions pvt. ltd",
+        "it fosters web solutions",
+        "it fosters",
+    ]
+
+    sparrow_names = [
+        "sparrow softtech pvt ltd",
+        "sparrow softtech",
+    ]
+
+    for paragraph in paragraphs:
+        contains_grievance = any(
+            term in paragraph
+            for term in grievance_terms
+        )
+
+        if not contains_grievance:
+            continue
+
+        if any(
+            name in paragraph
+            for name in it_fosters_names
+        ):
+            raise ValueError(
+                "The generated cover letter appears to "
+                "attribute the grievance management work "
+                "to IT FOSTERS. That experience belongs "
+                "to Sparrow Softtech."
+            )
+
+    # --------------------------------------------------------------
+    # Redux Toolkit belongs to IT FOSTERS.
+    #
+    # Only reject it when Sparrow is mentioned in the same
+    # paragraph.
+    # --------------------------------------------------------------
+
+    for paragraph in paragraphs:
+        if "redux toolkit" not in paragraph:
+            continue
+
+        if any(
+            name in paragraph
+            for name in sparrow_names
+        ):
+            raise ValueError(
+                "The generated cover letter appears to "
+                "attribute Redux Toolkit experience to "
+                "Sparrow Softtech."
+            )
+
+def validate_cover_letter(
+    cover_letter: str,
+    profile: dict,
+    job: dict,
+) -> None:
     """
+    Conservative deterministic validation.
+
+    The validator does not attempt to prove that every sentence
+    is true. Instead, it rejects known unsafe patterns and
+    obvious model failures before the letter is saved.
+    """
+
+    validate_structure(
+        cover_letter,
+        profile,
+    )
+
+    validate_no_placeholders(
+        cover_letter,
+    )
+
+    validate_no_model_meta(
+        cover_letter,
+    )
+
+    validate_no_resume_header(
+        cover_letter,
+    )
+
+    validate_company_and_role(
+        cover_letter,
+        job,
+    )
+
+    validate_forbidden_language(
+        cover_letter,
+    )
+
+    validate_suspicious_language(
+        cover_letter,
+    )
+
+    validate_unsupported_results(
+        cover_letter,
+    )
+
+    validate_project_boundaries(
+        cover_letter,
+        profile,
+    )
+
+
+def build_candidate_evidence(
+    profile: dict,
+) -> dict:
+    """
+    Create an explicit evidence packet.
+
+    Employer experience and personal projects remain separate.
+    """
+
+    experience = []
+
+    for item in profile.get(
+        "experience",
+        [],
+    ):
+        experience.append(
+            {
+                "company": item.get(
+                    "company"
+                ),
+                "role": item.get(
+                    "role"
+                ),
+                "start": item.get(
+                    "start"
+                ),
+                "end": item.get(
+                    "end"
+                ),
+                "achievements": item.get(
+                    "achievements",
+                    [],
+                ),
+            }
+        )
+
+    projects = []
+
+    for item in profile.get(
+        "projects",
+        [],
+    ):
+        projects.append(
+            {
+                "name": item.get(
+                    "name"
+                ),
+                "technologies": item.get(
+                    "technologies",
+                    [],
+                ),
+            }
+        )
+
+    education = []
+
+    for item in profile.get(
+        "education",
+        [],
+    ):
+        education.append(
+            {
+                "degree": item.get(
+                    "degree"
+                ),
+                "institution": item.get(
+                    "institution"
+                ),
+                "start": item.get(
+                    "start"
+                ),
+                "end": item.get(
+                    "end"
+                ),
+            }
+        )
 
     return {
-        "personal": {
-            "name": profile.get("name"),
-            "location": profile.get("location"),
-        },
-        "overall_skills": profile.get(
+        "candidate_name": profile.get(
+            "name"
+        ),
+        "professional_experience": experience,
+        "personal_projects": projects,
+        "skills": profile.get(
             "skills",
             [],
         ),
+        "education": education,
         "summary": profile.get(
             "summary",
             "",
         ),
-        "professional_experience": profile.get(
-            "experience",
+    }
+
+def select_relevant_candidate_evidence(
+    profile: dict,
+    job: dict,
+) -> dict:
+    """
+    Select candidate facts that are genuinely relevant to the job.
+
+    This keeps the language model from freely combining unrelated
+    employers, projects, and technologies.
+    """
+
+    job_text = normalize_for_matching(
+        str(job.get("description", ""))
+    )
+
+    selected_experience = []
+    selected_projects = []
+
+    # Technologies/terms that are safe to match directly against
+    # the job posting.
+    relevant_terms = [
+        "react",
+        "next.js",
+        "nextjs",
+        "javascript",
+        "typescript",
+        "frontend",
+        "front-end",
+        "responsive",
+        "ui",
+        "api",
+        "rest",
+        "firebase",
+        "redux",
+        "tailwind",
+        "html",
+        "css",
+        "performance",
+        "routing",
+        "components",
+        "state management",
+        "web development",
+    ]
+
+    matched_terms = [
+        term
+        for term in relevant_terms
+        if term in job_text
+    ]
+
+    # Keep the complete professional experience records.
+    # We do NOT let the model merge individual achievements
+    # across employers.
+    for item in profile.get(
+        "experience",
+        [],
+    ):
+        selected_experience.append(
+            {
+                "company": item.get("company"),
+                "role": item.get("role"),
+                "start": item.get("start"),
+                "end": item.get("end"),
+                "achievements": list(
+                    item.get(
+                        "achievements",
+                        [],
+                    )
+                ),
+            }
+        )
+
+    # Select only projects whose technologies overlap with
+    # the job's actual terminology.
+    for item in profile.get(
+        "projects",
+        [],
+    ):
+        technologies = item.get(
+            "technologies",
+            [],
+        )
+
+        matching_technologies = [
+            technology
+            for technology in technologies
+            if normalize_for_matching(
+                str(technology)
+            ) in job_text
+        ]
+
+        if matching_technologies:
+            selected_projects.append(
+                {
+                    "name": item.get("name"),
+                    "technologies": matching_technologies,
+                }
+            )
+
+    return {
+        "candidate_name": profile.get(
+            "name"
+        ),
+        "target_role": job.get(
+            "title"
+        ),
+        "matched_job_terms": matched_terms,
+        "professional_experience": selected_experience,
+        "relevant_personal_projects": selected_projects,
+        "skills": profile.get(
+            "skills",
             [],
         ),
         "education": profile.get(
             "education",
             [],
         ),
-        "projects": profile.get(
-            "projects",
-            [],
-        ),
-        "target_roles": profile.get(
-            "target_roles",
-            [],
-        ),
     }
-
 
 def build_cover_letter_prompt(
     profile: dict,
     job: dict,
 ) -> str:
-    company = job.get(
-        "company",
-        "the company",
-    )
+    company = str(
+        job.get(
+            "company",
+            "the company",
+        )
+    ).strip()
 
-    title = job.get(
-        "title",
-        "the position",
-    )
+    title = str(
+        job.get(
+            "title",
+            "the position",
+        )
+    ).strip()
 
-    location = job.get(
-        "location",
-        "",
-    )
+    location = str(
+        job.get(
+            "location",
+            "",
+        )
+    ).strip()
 
-    description = job.get(
-        "description",
-        "",
-    )
+    description = str(
+        job.get(
+            "description",
+            "",
+        )
+    ).strip()
 
     if not description:
         raise ValueError(
             "The selected job has no job description."
         )
 
-    candidate_evidence = build_candidate_evidence(
-        profile
+    candidate_evidence = select_relevant_candidate_evidence(
+        profile,
+        job,
+    )
+
+    evidence_json = json.dumps(
+        candidate_evidence,
+        indent=2,
+        ensure_ascii=False,
     )
 
     return f"""
-You are an expert professional career writer.
+Write a professional cover letter for this specific job.
 
-Write ONE polished, concise, natural, job-specific cover
-letter for the candidate.
+TARGET:
+Company: {company}
+Role: {title}
+Location: {location}
 
-The final letter will be reviewed by a real recruiter.
+CANDIDATE EVIDENCE:
+{evidence_json}
 
-Accuracy is more important than sounding impressive.
-
-============================================================
-TARGET JOB
-============================================================
-
-Company:
-{company}
-
-Role:
-{title}
-
-Location:
-{location}
-
-============================================================
-CANDIDATE EVIDENCE
-============================================================
-
-Everything below is factual candidate information.
-
-Different sections represent different evidence boundaries.
-
-Do NOT merge facts between employers or projects.
-
-{json.dumps(
-    candidate_evidence,
-    indent=2,
-    ensure_ascii=False,
-)}
-
-============================================================
-FULL JOB POSTING
-============================================================
-
+JOB POSTING:
 {description}
 
-============================================================
-ABSOLUTE FACTUAL RULE
-============================================================
-
-You MUST NOT invent anything.
-
-The candidate evidence above is the complete source of truth.
-
-If a fact is not present in the candidate evidence,
-you cannot use that fact.
-
-If a project is not listed in the candidate evidence,
-you MUST NOT mention that project.
-
-Never invent a project.
-
-Never invent a responsibility.
-
-Never invent an achievement.
-
-Never invent a technology.
-
-Never invent a client.
-
-Never invent a metric.
-
-Never invent a qualification.
-
-Never invent years of experience.
-
-Never invent domain experience.
-
-============================================================
-EMPLOYER EVIDENCE BOUNDARIES
-============================================================
-
-Each professional experience entry is independent.
-
-If IT FOSTERS contains React and Next.js, those technologies
-may be associated with IT FOSTERS.
-
-If Sparrow Softtech does not explicitly list React or Next.js,
-do NOT associate those technologies with Sparrow Softtech.
-
-Never transfer technologies or responsibilities from one
-employer to another.
-
-============================================================
-PROJECT EVIDENCE BOUNDARIES
-============================================================
-
-Each project is independent.
-
-For example, if Draftly contains:
-
-Next.js 16
-Convex
-Better Auth
-Tailwind CSS v4
-shadcn/ui
-TipTap
-
-those are the technologies you may associate with Draftly.
-
-Do not add Redux Toolkit, Firebase, Sanity, Framer Motion,
-Clerk, or other technologies to Draftly unless they are
-explicitly listed under Draftly.
-
-Never invent project features or outcomes.
-
-============================================================
-OVERALL SKILLS RULE
-============================================================
-
-The overall_skills list represents skills the candidate has.
-
-However, a skill listed only in overall_skills does not prove
-where or how the candidate used that skill.
-
-Therefore, do not attach an overall skill to a particular
-employer or project unless that employer/project explicitly
-supports the claim.
-
-============================================================
-JOB REQUIREMENT RULE
-============================================================
-
-Read the entire job posting before writing.
-
-Identify the most important:
-
-- responsibilities
-- technical requirements
-- frameworks
-- frontend requirements
-- experience requirements
-- collaboration expectations
-- qualifications
-
-Then select only candidate evidence that genuinely connects
-to those requirements.
-
-If a job requirement is not supported by the candidate,
-do not pretend it is supported.
-
-============================================================
-EXPERIENCE LEVEL
-============================================================
-
-The candidate has approximately one year of professional
-experience according to the profile.
-
-Do not describe the candidate as:
-
-seasoned
-senior
-highly experienced
-extensively experienced
-
-unless the supplied evidence explicitly supports it.
-
-Prefer:
-
-hands-on experience
-professional experience
-experience building
-experience developing
-
-============================================================
-COMPANY CLAIMS
-============================================================
-
-Use the job posting as the only source for statements about
-the company.
-
-Do not invent company facts.
-
-Do not call the company:
-
-innovative
-cutting-edge
-industry-leading
-revolutionary
-fast-growing
-
-or similar unless the job posting explicitly supports it
-and the statement is genuinely useful.
-
-Do not flatter the company.
-
-============================================================
-DOMAIN EXPERIENCE
-============================================================
-
-If the company operates in a specialized domain, do not claim
-the candidate has experience in that domain unless the
-candidate evidence explicitly supports it.
-
-Focus instead on genuine transferable technical experience.
-
-============================================================
-WRITING STYLE
-============================================================
-
-Write like an excellent human applicant.
-
-The writing should be:
-
-professional
-specific
-clear
-confident
-natural
-concise
-credible
-
-Avoid:
-
-generic AI language
-resume dumping
-buzzwords
-exaggeration
-empty enthusiasm
-company flattery
-repetition
-
-Do not write like a marketing brochure.
-
-============================================================
-OPENING
-============================================================
-
-Do NOT begin with:
-
-"I am writing to express my enthusiastic interest..."
-
-"I am excited to apply..."
-
-"I am thrilled to apply..."
-
-"I believe I am the perfect fit..."
-
-"I am confident that I am an ideal candidate..."
-
-Instead, begin directly with a specific connection between
-the candidate's actual experience and this particular role.
-
-============================================================
-PROFESSIONAL EXPERIENCE
-============================================================
-
-Use professional experience when relevant.
-
-Prefer concrete responsibilities.
-
-For each employer mentioned, use only facts explicitly
-associated with that employer.
-
-============================================================
-PROJECTS
-============================================================
-
-Mention a project only if it genuinely strengthens the
-application.
-
-Only mention projects that actually exist in the candidate
-evidence.
-
-When mentioning a project:
-
-Use only its explicitly listed technologies and facts.
-
-Do not invent project features.
-
-Do not invent project outcomes.
-
-Do not invent users.
-
-Do not invent metrics.
-
-============================================================
-STRUCTURE
-============================================================
-
-Use approximately four short paragraphs.
-
-Paragraph 1:
-Immediately establish the strongest factual connection
-between the candidate and this specific role.
-
-Paragraph 2:
-Explain the most relevant professional experience.
-
-Paragraph 3:
-Use one relevant project or additional technical evidence
-only if it genuinely strengthens the application.
-
-Paragraph 4:
-Close professionally and concisely.
-
-============================================================
-LENGTH
-============================================================
-
-Target approximately 250-350 words.
-
-Do not pad the letter.
-
-Do not repeat the same skill multiple times.
-
-A concise truthful letter is better than a longer generic one.
-
-============================================================
-FORMAT
-============================================================
-
-Return plain text only.
-
-No Markdown.
-
-No bullet points.
-
-No headings.
-
-No Subject line.
-
-No analysis.
-
-No explanation.
-
-No preamble.
+STRICT FACTUAL RULES:
+
+1. The candidate evidence is the only source of truth.
+
+2. Use only facts explicitly present in the candidate evidence.
+
+3. Professional experience records are separate.
+   Never move an achievement, responsibility, technology,
+   or project from one employer to another.
+
+4. Personal projects are separate from employment.
+   Never describe a personal project as work performed
+   for an employer.
+
+5. Do not combine technologies from different employers
+   into one employer's experience.
+
+6. Do not assign a project technology to an employer.
+
+7. Do not invent outcomes such as:
+   improved user experience,
+   increased performance,
+   increased scalability,
+   improved maintainability,
+   seamless experience,
+   high performance,
+   major impact,
+   significant impact,
+   or measurable results.
+
+8. Do not use words such as:
+   cutting-edge,
+   innovative,
+   passionate,
+   perfect fit,
+   ideal candidate,
+   seasoned,
+   expert,
+   highly experienced,
+   world-class,
+   industry-leading,
+   exceptional,
+   outstanding.
+
+9. Do not describe the candidate's education as current unless
+   the candidate evidence explicitly says it is current.
+
+10. Do not make claims about Eudia, its mission, products,
+    culture, technology, or industry unless those claims are
+    directly supported by the job posting.
+
+11. Do not claim legal, AI, enterprise, or other domain
+    experience unless it is explicitly present in the
+    candidate evidence.
+
+12. Do not say that a project "allowed", "enabled", "prepared",
+    "equipped", "positioned", "honed", or "demonstrated"
+    an ability unless the underlying factual statement is
+    explicitly present in the evidence.
+
+13. Prefer simple factual statements:
+    "I developed..."
+    "I implemented..."
+    "I integrated..."
+    "I built..."
+    "I used..."
+
+14. Do not infer a result from an activity.
+
+15. Do not infer a responsibility from a technology.
+
+16. Do not infer an employer/project relationship.
+
+17. The job posting determines relevance, but it does NOT
+    give you permission to invent candidate experience.
+
+WRITING:
+
+- Write exactly 4 paragraphs.
+- Target approximately 220-280 words.
+- Paragraph 1: direct application + 1-2 concrete relevant facts.
+- Paragraph 2: professional experience with concrete facts.
+- Paragraph 3: one relevant personal project OR additional
+  professional experience.
+- Paragraph 4: concise closing connecting the documented
+  experience to the role without making unsupported claims.
+- Use factual, restrained language.
+- Do not summarize the entire resume.
+- Do not repeat the same fact.
+- Do not praise the company without evidence.
+
+OPENING:
 
 Start directly with:
 
 Dear Hiring Team,
 
+Do not use:
+"I am writing to express my enthusiastic interest..."
+"I am excited to apply..."
+"I am thrilled to apply..."
+"I believe I am the perfect fit..."
+"I am confident that I am an ideal candidate..."
+
+FORMAT:
+
+Return ONLY the cover-letter body.
+
+Do not include:
+- address
+- date
+- phone number
+- email
+- LinkedIn
+- GitHub
+- portfolio URL
+- Subject line
+- Markdown
+- bullet points
+- headings
+- placeholders
+- commentary
+- analysis
+
 End exactly with:
 
 Best regards,
 MD SAFI MAAZ
+""".strip()
 
-Do not include:
+def revise_cover_letter(
+    cover_letter: str,
+    validation_error: str,
+    profile: dict,
+    job: dict,
+) -> str:
+    """
+    Ask the local model to revise a rejected cover letter.
 
-phone number
-email
-LinkedIn
-GitHub
-portfolio URL
-physical address
+    The revision is based on the original candidate evidence and
+    the deterministic validation error. The model must not invent
+    new candidate facts while correcting the draft.
+    """
 
-Those are handled separately by the application system.
+    candidate_evidence = build_candidate_evidence(
+        profile
+    )
 
-============================================================
-FINAL FACT CHECK
-============================================================
+    evidence_json = json.dumps(
+        candidate_evidence,
+        indent=2,
+        ensure_ascii=False,
+    )
 
-Before returning the letter, silently check every factual
-statement.
+    company = str(
+        job.get(
+            "company",
+            "",
+        )
+    ).strip()
 
-For every employer:
+    title = str(
+        job.get(
+            "title",
+            "",
+        )
+    ).strip()
 
-Is this fact explicitly associated with that employer?
+    revision_prompt = f"""
+Revise the cover letter below.
 
-For every project:
+TARGET:
+Company: {company}
+Role: {title}
 
-Is this project actually listed?
+CANDIDATE EVIDENCE:
+{evidence_json}
 
-Is this technology actually listed for that project?
+ORIGINAL COVER LETTER:
+{cover_letter}
 
-For every technology:
+VALIDATION ERROR:
+{validation_error}
 
-Is the claim supported?
+You MUST fix the validation error.
 
-For every achievement:
+You MUST also follow all of these rules:
 
-Is it explicitly supported?
+1. Candidate evidence is the only source of truth.
 
-For every company statement:
+2. Never invent an employer, project, responsibility,
+   achievement, metric, qualification, technology, client,
+   domain experience, or company fact.
 
-Is it supported by the job posting?
+3. Professional experience and personal projects are separate.
+   Never say that a personal project was created at an employer.
 
-For every experience-level statement:
+4. Never move a technology or responsibility from one
+   employer/project to another.
 
-Is it supported by the candidate evidence?
+5. Do not claim current education or current employment unless
+   the evidence explicitly says it is current.
 
-If any statement is unsupported, remove it.
+6. Do not invent results or performance improvements.
 
-Do not replace unsupported information with an invented fact.
+7. Do not make claims about Eudia unless directly supported
+   by the job posting.
 
-============================================================
-FINAL OUTPUT
-============================================================
+8. Do not use:
+   passionate
+   detail-oriented
+   cutting-edge
+   innovative
+   perfect fit
+   ideal candidate
+   seasoned
+   expert
+   highly experienced
+   excited to apply
+   excited to join
+   thrilled
+   world-class
+   industry-leading
 
-Return ONLY the finished cover letter.
+9. Do not use vague claims such as:
+   "honed my ability"
+   "showcased my ability"
+   "demonstrated my ability"
+   "made a significant impact"
+   "proven track record"
+   "deliver exceptional results"
 
-No commentary.
+10. Keep concrete facts from the candidate evidence.
 
-No analysis.
+11. Write exactly 4 short paragraphs.
 
-No explanation.
+12. Target approximately 220-280 words.
 
-No alternatives.
+13. Start exactly with:
 
-No notes.
-"""
+Dear Hiring Team,
 
+14. Return ONLY the cover-letter body.
+
+15. Do not include:
+   address
+   date
+   phone
+   email
+   links
+   subject
+   headings
+   bullet points
+   Markdown
+   commentary
+   analysis
+   placeholders
+
+16. End exactly with:
+
+Best regards,
+MD SAFI MAAZ
+""".strip()
+
+    response = ask_cover_letter_ai(
+        revision_prompt
+    )
+
+    return clean_cover_letter(
+        response
+    )
 
 def generate_cover_letter(
     job: dict,
@@ -777,24 +1293,26 @@ def generate_cover_letter(
     print("GENERATING COVER LETTER")
     print("=" * 80)
     print()
+
     print(
         f"Company: {job.get('company', 'Unknown')}"
     )
+
     print(
         f"Role: {job.get('title', 'Unknown')}"
     )
+
     print()
+
     print(
         f"Using local Ollama model: "
         f"{COVER_LETTER_MODEL}"
     )
+
     print(
-        "Thinking disabled for focused writing."
+        "Generating a fresh job-specific cover letter..."
     )
-    print(
-        "Generating a fresh job-specific "
-        "cover letter..."
-    )
+
     print()
 
     raw_response = ask_cover_letter_ai(
@@ -805,14 +1323,70 @@ def generate_cover_letter(
         raw_response
     )
 
-    validate_cover_letter(
-        cover_letter,
-        profile,
-        job,
+    max_attempts = 3
+
+    for attempt in range(
+        1,
+        max_attempts + 1,
+    ):
+        print()
+        print("=" * 80)
+        print(
+            f"DRAFT VALIDATION "
+            f"(attempt {attempt}/{max_attempts})"
+        )
+        print("=" * 80)
+        print()
+
+        print(cover_letter)
+        print()
+
+        try:
+            validate_cover_letter(
+                cover_letter,
+                profile,
+                job,
+            )
+
+            print(
+                "VALIDATION PASSED"
+            )
+
+            return cover_letter
+
+        except ValueError as error:
+            validation_error = str(error)
+
+            print(
+                "VALIDATION FAILED:"
+            )
+            print(
+                validation_error
+            )
+
+            if attempt >= max_attempts:
+                raise ValueError(
+                    "Cover letter failed validation after "
+                    f"{max_attempts} attempts. "
+                    f"Last error: {validation_error}"
+                )
+
+            print()
+            print(
+                "Asking the local model to correct "
+                "the rejected draft..."
+            )
+
+            cover_letter = revise_cover_letter(
+                cover_letter,
+                validation_error,
+                profile,
+                job,
+            )
+
+    raise RuntimeError(
+        "Unexpected cover-letter generation state."
     )
-
-    return cover_letter
-
 
 def save_cover_letter(
     job_id: int,
