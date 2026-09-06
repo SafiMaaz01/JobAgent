@@ -1,1187 +1,299 @@
-# JobAgent
+# JobAgent — Local AI-Powered Job Application Assistant
 
-> A local-first AI-powered job application assistant that finds relevant jobs, evaluates them against a candidate profile, prepares applications, and automates repetitive browser form filling — while keeping the final submission under human control.
+> A local-first, privacy-respecting job application assistant that automates job discovery, deterministic relevance filtering, local AI match scoring, application package preparation, and browser form autofill — while keeping all final submission decisions under human control.
 
 ---
 
-## Overview
+## 1. Executive Summary
 
-JobAgent is a local job-search and application automation project built with:
+Searching for jobs manually involves opening dozens of browser tabs, evaluating repetitive job descriptions, and filling out identical form fields over and over. **JobAgent** automates the labor-intensive stages of job discovery, matching, and form filling while maintaining strict human-in-the-loop safety.
 
-- Python
-- SQLite
-- Ollama
-- Playwright
-- Greenhouse job-board APIs
+Key highlights:
+- **100% Local AI Matching**: Uses Ollama running locally (default: `qwen2.5:7b`) to evaluate job descriptions against candidate profiles without sending private resume data to paid cloud APIs.
+- **Deterministic Filtering**: Fast rule-based filtering (roles, seniority, experience limits, locations) runs before AI evaluation to minimize LLM compute overhead.
+- **Modern Full-Stack Control Dashboard**: A high-performance Next.js 15 App Router frontend backed by a FastAPI REST API for searching jobs, reviewing matches, managing application packages, and monitoring live browser automation tasks.
+- **Human-in-the-Loop Submission Gate**: Playwright browser automation fills form fields, uploads resume PDFs, and answers custom questions, but **stops at a Ready to Submit gate requiring explicit human review and confirmation** before any form is submitted.
 
-The idea is simple:
+---
+
+## 2. Complete End-to-End System Architecture
 
 ```text
-Find jobs
-   ↓
-Filter them
-   ↓
-Match them with local AI
-   ↓
-Review recommendations
-   ↓
-Approve suitable jobs
-   ↓
-Prepare applications
-   ↓
-Autofill browser forms
-   ↓
-Verify the application
-   ↓
-Human reviews
-   ↓
-Human submits
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                          Next.js Web Control Dashboard                          │
+│                          http://localhost:3000 (App Router)                     │
+├─────────────────┬─────────────────┬─────────────────┬─────────────────┬─────────┤
+│  📊 Dashboard   │  ✓ Review Queue │ 💼 Jobs Directory│ 📝 Applications │⚙Settings│
+│  KPI Telemetry  │  Approve / Pass │ Filter & Detail │ Package & Runner│ Candidate│
+└─────────────────┴────────┬────────┴─────────────────┴─────────────────┴─────────┘
+                           │ HTTP REST (Native fetch, cache: "no-store", No SQLite)
+┌──────────────────────────▼──────────────────────────────────────────────────────┐
+│                            FastAPI Backend REST Layer                           │
+│                            http://127.0.0.1:8000                                │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│  - GET /api/stats (Pipeline counters & package telemetry)                       │
+│  - GET /api/jobs & PUT /api/jobs/{id}/review (Job directory & human review)      │
+│  - GET/POST /api/applications (Package preparation & detail inspection)          │
+│  - POST /api/applications/{id}/autofill (Non-blocking background runner launch)  │
+│  - GET/POST /api/tasks/{task_id} (Live automation logs & human confirmation gate)│
+│  - GET/PUT /api/config/profile (Atomic validated profile writes to profile.json)│
+└─────────┬──────────────────────────┬──────────────────────────┬─────────────────┘
+          │ Direct Read/Write        │ Subprocess / Library     │ Local HTTP API
+┌─────────▼─────────┐      ┌─────────▼─────────┐      ┌─────────▼─────────┐
+│ SQLite Database   │      │ Playwright Runner │      │ Ollama AI Engine  │
+│  (data/jobs.db)   │      │  Chromium Window  │      │ (qwen2.5:7b LLM)  │
+└───────────────────┘      └───────────────────┘      └───────────────────┘
 ```
 
-Instead of manually opening hundreds of job postings and filling repetitive forms, JobAgent automates the repetitive parts while keeping important decisions under human control.
+### Core Architecture Components
 
-The system uses deterministic rules for obvious filtering and a local AI model for deeper job-to-candidate matching.
-
-**No paid AI API is required for the core AI workflow.**
-
----
-
-## Features
-
-### Job Discovery
-
-- Public Greenhouse job-board integration
-- Configurable job sources
-- Collection of current job postings
-- Job normalization
-- Local SQLite storage
-
-### Job Filtering
-
-- Target-role filtering
-- Seniority filtering
-- Experience filtering
-- Location filtering
-- Remote/hybrid preference handling
-- Technical/non-technical role filtering
-- Exclusion of clearly unsuitable roles
-- Deterministic candidate-experience checks
-
-### Local AI Matching
-
-- Local Ollama model integration
-- Candidate-profile-based evaluation
-- Job requirement analysis
-- Match scoring
-- `APPLY` / `REVIEW` / `SKIP` recommendations
-- Deterministic safety rules around AI recommendations
-
-### Application Preparation
-
-- Human approval workflow
-- Application package generation
-- Candidate information preparation
-- Resume association
-- Application-specific answer handling
-- Local cover-letter generation under development
-
-### Application Question Handling
-
-- Reusable saved answers
-- Profile-based safe answers
-- Question classification
-- Automatic handling of known questions
-- User prompts for unknown required questions
-- Protection against guessing sensitive answers
-- No fabricated experience or qualifications
-
-### Browser Automation
-
-- Playwright browser automation
-- Application page discovery
-- Personal information autofill
-- Country selection
-- Resume upload
-- Resume upload verification
-- LinkedIn/GitHub/website/portfolio fields
-- Application question handling
-- Browser form verification
-- Safe stop before final submission
-
-### Human-in-the-Loop Safety
-
-- Human approval before application preparation
-- Human interaction for unknown required questions
-- Final application submission is intentionally not automated
-- No blind application submission
-- No fabricated candidate information
+1. **Next.js Frontend (`frontend/`)**: Built using Next.js 15 App Router, React 19, and TypeScript. Uses Server Components by default for fast page loads and Client Components for interactive tables, drawers, live log streaming, and profile editing.
+2. **FastAPI REST Server (`run_api.py`, `app/api/`)**: Provides asynchronous REST endpoints for frontend data fetching, background task execution, and atomic JSON profile persistence.
+3. **SQLite Database (`data/jobs.db`)**: Central database storing job listings, external IDs, deterministic relevance flags, AI match scores, recommendations, human review statuses, and application timestamps.
+4. **Greenhouse Collector (`app/jobs/greenhouse.py`)**: Queries public Greenhouse board APIs configured in `data/sources.json`, normalizes job schema, and performs upserts into SQLite.
+5. **Deterministic Relevance Filter (`app/jobs/filter.py`)**: Applies regex rules to extract experience requirements, title keywords, and location constraints to weed out non-matching jobs instantly.
+6. **Local Ollama Matcher (`app/job_matcher.py`)**: Evaluates filtered job descriptions against candidate profile data using local LLM inference. Outputs match scores (0-100), recommendations (`APPLY` / `PASS`), strong matches, missing requirements, and reasoning.
+7. **Application Package Generator (`app/application/prepare.py`)**: Compiles candidate details, verified resume PDF paths, and resolved question answers into application packages saved in `data/applications/app_<job_id>.json`.
+8. **Answer Resolution System (`app/application/answers.py`, `app/application/question_resolver.py`)**: Resolves common job questions against candidate profile fields and the saved answer bank (`data/answers.json`).
+9. **Playwright Automation Engine (`app/browser/autofill_application.py`)**: Spawns non-headless Chromium to open job application forms, upload resume PDFs, fill personal details, and answer custom form questions.
+10. **Human Submission Confirmation Gate**: Automation pauses before form submission and notifies the user. Submission occurs **only** when the user explicitly clicks "Confirm" or inputs affirmative confirmation.
 
 ---
 
-## Architecture
+## 3. Technology Stack
 
-```text
-                    ┌─────────────────────────────┐
-                    │      Public Job Sources     │
-                    │       Greenhouse Boards     │
-                    └──────────────┬──────────────┘
-                                   │
-                                   ▼
-                    ┌─────────────────────────────┐
-                    │       Job Collector         │
-                    │     API / Data Retrieval     │
-                    └──────────────┬──────────────┘
-                                   │
-                                   ▼
-                    ┌─────────────────────────────┐
-                    │      Job Normalization      │
-                    └──────────────┬──────────────┘
-                                   │
-                                   ▼
-                    ┌─────────────────────────────┐
-                    │          SQLite DB           │
-                    │       Local Job Storage      │
-                    └──────────────┬──────────────┘
-                                   │
-                                   ▼
-                    ┌─────────────────────────────┐
-                    │      Deterministic Filter   │
-                    │                             │
-                    │ Role / Location / Seniority │
-                    │ Experience / Relevance      │
-                    └──────────────┬──────────────┘
-                                   │
-                                   ▼
-                    ┌─────────────────────────────┐
-                    │       Local AI Matcher      │
-                    │            Ollama            │
-                    └──────────────┬──────────────┘
-                                   │
-                                   ▼
-                    ┌─────────────────────────────┐
-                    │        Human Review         │
-                    │        Approve / Reject     │
-                    └──────────────┬──────────────┘
-                                   │
-                             Approved Job
-                                   │
-                                   ▼
-                    ┌─────────────────────────────┐
-                    │     Application Package     │
-                    │ Resume / Answers / Content  │
-                    └──────────────┬──────────────┘
-                                   │
-                                   ▼
-                    ┌─────────────────────────────┐
-                    │    Playwright Browser       │
-                    │        Automation           │
-                    └──────────────┬──────────────┘
-                                   │
-                                   ▼
-                    ┌─────────────────────────────┐
-                    │      Form Verification      │
-                    └──────────────┬──────────────┘
-                                   │
-                                   ▼
-                    ┌─────────────────────────────┐
-                    │     Final Human Review      │
-                    │           Submit            │
-                    └─────────────────────────────┘
-```
-
-### Workflow
-
-1. Collect jobs
-2. Normalize jobs
-3. Store jobs in SQLite
-4. Apply deterministic filters
-5. Evaluate remaining jobs with local AI
-6. Generate match score and recommendation
-7. Human reviews suitable jobs
-8. Approve a job
-9. Prepare the application package
-10. Generate or review application content
-11. Open the application in a browser
-12. Autofill known information
-13. Ask the user about unknown required questions
-14. Verify the form
-15. Human reviews the application
-16. Human submits the application
+| Layer | Technology / Library | Purpose |
+|---|---|---|
+| **Frontend Framework** | Next.js 15 (App Router) | Server-side rendering, routing, client views |
+| **Frontend Language** | TypeScript | Type safety & API contract alignment |
+| **Styling** | Vanilla CSS (`globals.css`) | Custom dark theme, glassmorphism, responsive UI |
+| **Backend API** | FastAPI + Uvicorn | Asynchronous REST backend & task execution |
+| **Data Validation** | Pydantic v2 | Request/response schema validation |
+| **Database** | SQLite 3 (`sqlite3.Row`) | Local job data & review state storage |
+| **Local AI Engine** | Ollama (`qwen2.5:7b`) | Privacy-first job matching & analysis |
+| **Browser Automation**| Playwright (Python) | Visible Chromium form interaction & autofill |
+| **Job Collector** | Requests + Greenhouse API | Ingesting job postings from public company boards |
 
 ---
 
-## Why Local AI?
-
-JobAgent is designed around a local-first approach.
-
-Instead of sending a candidate's entire profile and application information to a paid cloud AI service, the project uses Ollama to run language models locally.
-
-Benefits include:
-
-- No paid AI API is required
-- Candidate information can remain on the local machine
-- Resume data can remain local
-- Application history can remain local
-- AI job matching can run locally
-- AI-generated application content can run locally
-- No cloud AI credentials are required for the core workflow
-
-Internet access is still required for:
-
-- Retrieving fresh job postings
-- Accessing external job-application websites
-- Running browser-based application workflows
-
----
-
-## Tech Stack
-
-| Technology | Purpose |
-|---|---|
-| Python | Core application |
-| SQLite | Local job and application data |
-| Ollama | Local AI inference |
-| Qwen / other Ollama models | Local AI tasks |
-| GPT-OSS / other Ollama models | Optional local writing tasks |
-| Playwright | Browser automation |
-| Greenhouse API | Job collection |
-| JSON | Configuration and local profile data |
-| Git | Version control |
-| GitHub | Source control and project hosting |
-
-The specific local AI model can depend on the task and the hardware available.
-
----
-
-## Project Structure
+## 4. Directory & File Structure
 
 ```text
 JobAgent/
+├── app/                          # Core Python Application Package
+│   ├── api/                      # FastAPI REST Layer
+│   │   ├── routers/              # API Endpoint Routers
+│   │   │   ├── applications.py   # Application packages & autofill runner
+│   │   │   ├── config.py         # Profile & settings endpoints
+│   │   │   ├── jobs.py           # Job directory & human review endpoints
+│   │   │   ├── stats.py          # Dashboard KPI telemetry
+│   │   │   └── tasks.py          # Automation task monitoring & confirmation
+│   │   ├── schemas/              # Pydantic Request/Response Models
+│   │   │   ├── application.py    # Application summary & detail schemas
+│   │   │   ├── job.py            # Job summary, detail, & review schemas
+│   │   │   ├── profile.py        # Candidate profile validation schemas
+│   │   │   └── task.py           # Automation task status & action schemas
+│   │   ├── deps.py               # Database dependency injection
+│   │   └── main.py               # FastAPI app initialization & router registration
+│   │
+│   ├── application/              # Package Preparation & Answer Resolution
+│   │   ├── answer.py             # Custom answer data structures
+│   │   ├── answers.py            # Persistent answer bank manager (data/answers.json)
+│   │   ├── prepare.py            # Application package compiler
+│   │   ├── question_resolver.py   # Heuristic candidate question solver
+│   │   ├── review.py             # Package inspection utilities
+│   │   └── run.py                # Package execution pipeline
+│   │
+│   ├── approval/                 # Human Approval Workflow
+│   │   └── review.py             # Database status updates for human decisions
+│   │
+│   ├── browser/                  # Playwright Automation (Protected Engine)
+│   │   ├── autofill_application.py# Authoritative Playwright application filler
+│   │   ├── inspect_application.py # Form structure inspector
+│   │   └── test_browser.py       # Browser validation test script
+│   │
+│   ├── database/                 # SQLite Persistence
+│   │   ├── db.py                 # Connection factory & non-destructive schema migrations
+│   │   └── inspect_jobs.py       # Database inspection CLI helper
+│   │
+│   ├── jobs/                     # Collection & Relevance Filtering
+│   │   ├── filter.py             # Deterministic regex relevance filter
+│   │   ├── greenhouse.py         # Greenhouse job board API collector
+│   │   ├── normalize.py          # Job posting schema normalizer
+│   │   └── diagnose_filter.py    # Filter diagnostic CLI helper
+│   │
+│   ├── matcher/                  # AI Matcher Package
+│   │   └── run_matcher.py        # Matcher runner execution script
+│   │
+│   ├── job_matcher.py            # Local Ollama AI client & matching prompt
+│   └── profile.py                # Profile loader utility
 │
-├── app/
-│   ├── application/
-│   │   ├── __init__.py
-│   │   ├── answer.py
-│   │   ├── answers.py
-│   │   ├── cover_letter.py
-│   │   ├── mark_applied.py
-│   │   ├── prepare.py
-│   │   ├── question_resolver.py
-│   │   ├── review.py
-│   │   ├── run.py
-│   │   ├── test_browser_question_integration.py
-│   │   └── test_question_pipeline.py
-│   │
-│   ├── approval/
-│   │   ├── __init__.py
-│   │   └── review.py
-│   │
-│   ├── browser/
-│   │   ├── autofill_application.py
-│   │   ├── inspect_application.py
-│   │   └── test_browser.py
-│   │
-│   ├── database/
-│   │   ├── __init__.py
-│   │   ├── db.py
-│   │   └── inspect_jobs.py
-│   │
-│   ├── jobs/
-│   │   ├── diagnose_filter.py
-│   │   ├── filter.py
-│   │   ├── greenhouse.py
-│   │   ├── inspect_jobs.py
-│   │   └── normalize.py
-│   │
-│   ├── matcher/
-│   │   ├── __init__.py
-│   │   └── run_matcher.py
-│   │
-│   ├── job_matcher.py
-│   ├── profile.py
-│   └── test_ai.py
+├── data/                         # Local Data Directory (Ignored or Template Data)
+│   ├── applications/             # Generated application packages (app_<job_id>.json)
+│   ├── answers.json              # Reusable custom question answer bank
+│   ├── jobs.db                   # SQLite database file
+│   ├── profile.json              # Candidate profile data
+│   ├── resume.pdf                # Candidate resume PDF file
+│   └── sources.json              # Target Greenhouse company board tokens
 │
-├── data/
-│   ├── profile.example.json
-│   └── sources.json
+├── frontend/                     # Next.js 15 Web Dashboard
+│   ├── src/
+│   │   ├── app/                  # App Router Pages
+│   │   │   ├── applications/     # Applications Hub & Detail pages
+│   │   │   ├── jobs/             # Jobs Directory page
+│   │   │   ├── review/           # Review Queue page
+│   │   │   ├── settings/         # Candidate Settings & Profile page
+│   │   │   ├── globals.css       # Design tokens, variables, & utility classes
+│   │   │   ├── layout.tsx        # Dashboard application shell & layout
+│   │   │   └── page.tsx          # Main Overview Dashboard page
+│   │   │
+│   │   ├── components/           # UI Client & Server Components
+│   │   │   ├── ApplicationDetailClient.tsx # Application inspection & runner panel
+│   │   │   ├── ApplicationsClient.tsx      # Applications Hub client component
+│   │   │   ├── Header.tsx                  # Top bar with workspace indicator
+│   │   │   ├── JobDetailDrawer.tsx         # Slide-over job detail inspection drawer
+│   │   │   ├── JobsFilterBar.tsx           # Search, score, & status toolbar
+│   │   │   ├── JobsTableWithDrawer.tsx     # Paginated jobs directory table
+│   │   │   ├── MetricCard.tsx              # KPI metric visual display
+│   │   │   ├── RecentJobsTable.tsx         # Dashboard high-scoring jobs table
+│   │   │   ├── ReviewQueueClient.tsx       # Human review decision cards
+│   │   │   ├── SettingsClient.tsx          # Profile & preferences editor
+│   │   │   ├── Sidebar.tsx                 # Dashboard sidebar navigation
+│   │   │   └── StatusBadge.tsx             # Score & status color badges
+│   │   │
+│   │   └── lib/                  # Frontend Helper Libraries
+│   │       ├── api.ts            # Type-safe fetch wrappers around FastAPI
+│   │       └── types.ts          # TypeScript interfaces matching backend models
+│   │
+│   ├── package.json              # Frontend npm dependencies & scripts
+│   └── tsconfig.json             # TypeScript compiler settings
 │
-├── check_jobs.py
-├── requirements.txt
-├── setup.ps1
-├── test_application.html
-├── .gitignore
-├── LICENSE
-└── README.md
+├── howtouse                      # Complete Root-Level Usage & Command Manual
+├── requirements.txt              # Python dependencies
+├── run_api.py                    # FastAPI server startup script
+├── setup.ps1                     # PowerShell automated setup script
+└── README.md                     # Comprehensive project documentation
 ```
 
-### Local-only files
+---
 
-The following are intentionally not included in the public repository:
+## 5. End-to-End Application Workflow
 
 ```text
-data/profile.json
-data/resume/
-data/applications/
-data/jobs.db
-data/answers.json
-data/application_answers.json
-.venv/
-.vscode/
-__pycache__/
-```
-
-These files are generated locally or contain personal information.
-
----
-
-## Job Collection
-
-The current implementation supports public Greenhouse job boards.
-
-Job sources are configured in:
-
-```text
-data/sources.json
-```
-
-Example:
-
-```json
-{
-  "greenhouse": [
-    {
-      "company": "Stripe",
-      "board_token": "stripe"
-    },
-    {
-      "company": "Airbnb",
-      "board_token": "airbnb"
-    }
-  ]
-}
-```
-
-The collector retrieves job postings from configured sources and stores normalized job information locally.
-
----
-
-## Deterministic Filtering
-
-JobAgent does not send every collected job directly to the AI model.
-
-The first stage uses deterministic rules to remove obvious mismatches.
-
-Examples of filtering criteria include:
-
-- Job title
-- Target role
-- Seniority
-- Required experience
-- Location
-- Remote eligibility
-- Technical role relevance
-- Non-technical role exclusions
-- Candidate experience limits
-
-This approach:
-
-- Reduces unnecessary AI processing
-- Makes important filtering decisions predictable
-- Prevents obviously unsuitable jobs from reaching the AI stage
-- Provides a deterministic safety layer around AI recommendations
-
----
-
-## AI Job Matching
-
-Jobs that survive deterministic filtering can be evaluated using a local Ollama model.
-
-The matcher considers information such as:
-
-- Candidate skills
-- Professional experience
-- Education
-- Projects
-- Job responsibilities
-- Required skills
-- Experience requirements
-- Location
-- Seniority
-
-The matcher produces a recommendation such as:
-
-```text
-APPLY
-REVIEW
-SKIP
-```
-
-along with a match score and reasoning.
-
-AI recommendations are additionally checked by deterministic safety rules before being used by the application workflow.
-
----
-
-## Application Approval
-
-JobAgent separates AI recommendations from application actions.
-
-The workflow is:
-
-```text
-AI Recommendation
-        ↓
-Human Review
-        ↓
-Approved
-        ↓
-Application Preparation
-```
-
-The system does not treat an AI recommendation as automatic permission to apply.
-
-This makes the workflow easier to inspect and safer to operate.
-
----
-
-## Application Package
-
-After a job is approved, JobAgent can create a local application package containing information such as:
-
-- Job information
-- Candidate information
-- Education
-- Experience
-- Skills
-- Projects
-- Application preferences
-- Resume path
-- Application answers
-- Application status
-
-Application packages are stored locally and are intentionally excluded from Git.
-
----
-
-## Application Question Resolver
-
-Application forms frequently contain questions that cannot safely be answered from a generic profile.
-
-JobAgent therefore uses a question-resolution layer.
-
-The resolver can:
-
-- Recognize previously answered questions
-- Resolve safe answers from the candidate profile
-- Resolve known technical-experience questions when supported
-- Ask the user when an answer cannot be safely determined
-- Avoid guessing legal or work-authorization information
-- Avoid inventing experience or qualifications
-
-Example:
-
-```text
-Question:
-Do you have experience with React?
-        ↓
-Resolver
-        ↓
-Verified candidate evidence
-        ↓
-Safe answer
-```
-
-For an unsupported question:
-
-```text
-Question:
-How many years of Python experience do you have?
-        ↓
-No verified Python experience
-        ↓
-Ask the user
-```
-
-The important rule is:
-
-> If JobAgent cannot safely determine an answer, it should ask the user rather than guess.
-
----
-
-## Browser Automation
-
-Playwright is used to automate repetitive browser interactions.
-
-The current automation can handle tasks such as:
-
-- Opening application pages
-- Selecting a ready application package
-- Filling first and last name
-- Filling email
-- Filling phone number
-- Selecting country
-- Uploading a resume
-- Verifying resume upload
-- Filling LinkedIn
-- Filling GitHub
-- Filling website/portfolio
-- Filling current location
-- Handling known application questions
-- Asking the user for unknown required answers
-- Verifying filled fields
-- Verifying required questions
-- Safely stopping before final submission
-
-The automation intentionally stops before the final application submission.
-
----
-
-## Human-in-the-Loop Safety
-
-The project is designed around a simple principle:
-
-> **Automate repetitive work, not human responsibility.**
-
-JobAgent does not blindly submit applications.
-
-Before submission, the user should have the opportunity to verify:
-
-- Job
-- Company
-- Role
-- Location
-- Resume
-- Application answers
-- Cover letter
-- Required questions
-- Other application information
-
-The final submission remains a human action.
-
----
-
-## Truthfulness Rules
-
-JobAgent is designed to avoid fabricated application information.
-
-The system should never:
-
-- Invent professional experience
-- Invent qualifications
-- Invent projects
-- Invent achievements
-- Invent employers
-- Invent technologies used in a project
-- Invent years of experience
-- Guess legal/work-authorization answers
-- Claim unsupported domain experience
-- Automatically answer uncertain questions as facts
-
-When information cannot be safely determined, the system should ask the user.
-
-This is especially important when AI is used to generate application content.
-
----
-
-## Privacy
-
-Personal candidate information is intentionally kept outside the public Git repository.
-
-The `.gitignore` excludes local files and directories such as:
-
-```text
-data/profile.json
-data/resume/
-data/applications/
-data/jobs.db
-data/answers.json
-data/application_answers.json
-.venv/
-.vscode/
-__pycache__/
-```
-
-These files may contain:
-
-- Name
-- Email
-- Phone number
-- Resume
-- Application history
-- Saved application answers
-- Job database
-- Generated application packages
-
-Do not remove these protections unless you fully understand what information will become public.
-
-### Public profile template
-
-A safe example profile is included at:
-
-```text
-data/profile.example.json
-```
-
-Copy it to:
-
-```text
-data/profile.json
-```
-
-and replace the placeholder values with your own information.
-
-The real `data/profile.json` is ignored by Git.
-
----
-
-# Installation
-
-## Requirements
-
-Recommended environment:
-
-- Windows 10/11
-- Python 3.11+
-- Git
-- Ollama
-- Playwright
-- Chromium
-- Sufficient RAM for the selected local AI model
-
-The project is designed to work locally without paid AI APIs.
-
----
-
-## Clone the Repository
-
-```powershell
-git clone https://github.com/SafiMaaz01/JobAgent.git
-cd JobAgent
+  ┌─────────────────┐
+  │ 1. Collect Jobs │  Greenhouse API → SQLite (jobs.db)
+  └────────┬────────┘
+           │
+  ┌────────▼────────┐
+  │ 2. Rule Filter  │  Regex checks: experience, title, location (is_relevant=1)
+  └────────┬────────┘
+           │
+  ┌────────▼────────┐
+  │ 3. AI Matching  │  Local Ollama (qwen2.5:7b) evaluates match score & reasoning
+  └────────┬────────┘
+           │
+  ┌────────▼────────┐
+  │ 4. Human Review │  Dashboard Review Queue (/review) → User approves job
+  └────────┬────────┘
+           │
+  ┌────────▼────────┐
+  │ 5. Prep Package │  Generate app_<job_id>.json (Candidate info + PDF + Answers)
+  └────────┬────────┘
+           │
+  ┌────────▼────────┐
+  │ 6. Autofill Form│  Playwright launches Chromium window & populates inputs
+  └────────┬────────┘
+           │
+  ┌────────▼────────┐
+  │ 7. Verification │  Browser inspects fields & pauses at READY TO SUBMIT gate
+  └────────┬────────┘
+           │
+  ┌────────▼────────┐
+  │ 8. Human Submit │  User inspects open browser & clicks "Confirm" in UI
+  └─────────────────┘
 ```
 
 ---
 
-## Windows Setup
+## 6. Complete API Reference
 
-JobAgent includes a setup script:
+FastAPI runs on `http://127.0.0.1:8000`. Full OpenAPI documentation is available at `http://127.0.0.1:8000/docs`.
 
-```text
-setup.ps1
-```
+### Statistics & Overview
+- `GET /api/stats`: Returns pipeline counters (total jobs, relevant jobs, pending review, approved, applied, ready packages, average match score).
 
-The script:
+### Job Directory & Human Review
+- `GET /api/jobs`: Query paginated jobs with search terms (`search`), review status (`status`), recommendation (`recommendation`), minimum match score (`min_score`), sorting, and page limits.
+- `GET /api/jobs/{id}`: Returns detailed information for a single job including full job description and parsed AI match details.
+- `GET /api/jobs/review-queue`: Fetches pending jobs recommended for application (`is_relevant=1`, `recommendation='APPLY'`, `review_status='pending'`).
+- `PUT /api/jobs/{id}/review`: Submit a human review decision (`{"status": "approved"}` or `{"status": "rejected"}`).
 
-1. Creates `.venv` if it does not already exist
-2. Activates the virtual environment
-3. Upgrades pip
-4. Installs Python dependencies from `requirements.txt`
-5. Installs Playwright Chromium
+### Application Packages & Automation
+- `GET /api/applications`: Lists all prepared application packages (`data/applications/app_*.json`) and approved jobs ready for preparation.
+- `GET /api/applications/{id}`: Returns application details for a job (resolved candidate fields, answer bank mappings, resume PDF path, verification checks).
+- `POST /api/applications/{id}/prepare`: Triggers package compilation for an approved job.
+- `POST /api/applications/{id}/autofill`: Launches the background Playwright browser automation runner for a prepared application.
 
-Run:
+### Automation Tasks & Human Confirmation
+- `GET /api/tasks/status`: Returns current status of active background automation (running step, percentage progress, recent logs, waiting prompts).
+- `POST /api/tasks/{task_id}/action`: Sends user confirmation (`{"action": "confirm"}`) to proceed with final form submission or cancellation (`{"action": "cancel"}`).
 
-```powershell
-.\setup.ps1
-```
-
-If PowerShell prevents local scripts from running because of execution policy, you can run the setup commands manually instead.
+### Configuration & Candidate Profile
+- `GET /api/config/profile`: Reads candidate profile data from `data/profile.json`.
+- `PUT /api/config/profile`: Validates and atomically writes updated candidate profile data to `data/profile.json`.
 
 ---
 
-## Manual Installation
+## 7. Safety, Privacy, & Verification Guarantees
 
-Create the virtual environment:
+1. **100% Local AI Execution**: Job matching is processed locally via Ollama. No private profile details, contact numbers, or resume achievements are uploaded to third-party AI services.
+2. **Explicit Human Confirmation Gate**: Playwright browser automation is configured to fill form inputs and pause before clicking final submission buttons. Form submission requires explicit human confirmation.
+3. **Atomic Profile Storage**: Profile updates are written atomically using temporary files, flushing buffers, and file renaming (`tempfile` + `fsync` + `replace`) to prevent corrupted `data/profile.json` files.
+4. **Isolated Frontend Architecture**: Next.js communicates strictly over HTTP REST endpoints (`http://127.0.0.1:8000`). Next.js does not import SQLite drivers or access `data/jobs.db` directly.
+5. **No Fabricated Qualifications**: Question resolution logic relies on explicit facts present in `data/profile.json` or `data/answers.json`. Unknown questions trigger user prompts rather than inventing facts.
 
-```powershell
-python -m venv .venv
-```
+---
 
-Activate it:
+## 8. Quick Start Guide
 
+For complete, step-by-step setup instructions on a fresh machine, refer to the root-level manual: [`howtouse`](file:///c:/Users/Maaz/Desktop/JobAgent/howtouse).
+
+### Daily Execution Commands
+
+#### Terminal 1 — Start FastAPI Backend:
 ```powershell
 .\.venv\Scripts\Activate.ps1
+python run_api.py
 ```
 
-Install dependencies:
-
+#### Terminal 2 — Start Next.js Dashboard:
 ```powershell
-python -m pip install --upgrade pip
-pip install -r requirements.txt
+cd frontend
+npm run dev
+# Dashboard available at http://localhost:3000
 ```
 
-Install Playwright Chromium:
-
+#### Refreshing Pipeline Data (When Needed):
 ```powershell
-python -m playwright install chromium
+# 1. Collect open job listings from Greenhouse boards
+python -m app.jobs.greenhouse
+
+# 2. Run local AI matcher against new postings
+python -m app.job_matcher
 ```
 
----
-
-# Ollama Setup
-
-Install Ollama and make sure the Ollama service is running.
-
-For example, download a local model:
-
+#### Pre-Commit Code Validation:
 ```powershell
-ollama pull qwen2.5:7b
-```
-
-Then verify:
-
-```powershell
-ollama list
-```
-
-The project can use different local models for different tasks.
-
-For example:
-
-```text
-qwen2.5:7b
-```
-
-can be used for job matching.
-
-A larger model such as:
-
-```text
-gpt-oss:latest
-```
-
-can be used for writing tasks if the machine has enough resources.
-
-Model selection is configured in the relevant application modules.
-
-Local model performance depends heavily on available CPU, GPU, RAM, and model size.
-
----
-
-# Local Candidate Profile
-
-The candidate profile is intentionally not included in the public repository.
-
-A template is provided:
-
-```text
-data/profile.example.json
-```
-
-Copy it:
-
-```powershell
-Copy-Item data\profile.example.json data\profile.json
-```
-
-Then edit:
-
-```text
-data/profile.json
-```
-
-with your own information.
-
-The profile can contain information such as:
-
-```json
-{
-  "name": "Your Name",
-  "email": "your@email.com",
-  "phone": "your phone",
-  "location": "Your Location",
-  "target_roles": [],
-  "skills": [],
-  "education": [],
-  "experience": [],
-  "projects": []
-}
-```
-
-Do not commit your real profile to a public repository.
-
----
-
-# Resume
-
-Place your local resume in:
-
-```text
-data/resume/
-```
-
-The directory is ignored by Git.
-
-The resume is used locally by the application workflow and browser automation.
-
----
-
-# Running the Project
-
-The project is currently under active development, so the exact execution flow may change as additional components are added.
-
-The general workflow is:
-
-### 1. Configure job sources
-
-Edit:
-
-```text
-data/sources.json
-```
-
-Add the public job boards you want to collect from.
-
-### 2. Collect jobs
-
-Run the appropriate job collection workflow.
-
-The current collector supports configured Greenhouse boards.
-
-### 3. Inspect and filter jobs
-
-Use the filtering and inspection modules to identify relevant positions.
-
-### 4. Run AI matching
-
-Use the local Ollama-backed matcher.
-
-### 5. Review recommendations
-
-Review generated recommendations before approving an application.
-
-### 6. Prepare the application
-
-Generate an application package for an approved job.
-
-### 7. Select an application
-
-The browser automation displays available `ready_for_review` application packages and allows the user to select one.
-
-### 8. Open the application
-
-Use the Playwright browser automation.
-
-### 9. Autofill known information
-
-JobAgent fills verified candidate information and known application answers.
-
-### 10. Handle unknown questions
-
-If a required question cannot be safely answered automatically, JobAgent asks the user instead of guessing.
-
-### 11. Verify the form
-
-The automation verifies the fields it filled and checks the resume upload.
-
-### 12. Review before submission
-
-The automation stops before final submission.
-
-The user remains responsible for reviewing and submitting the application.
-
----
-
-# Testing
-
-The project contains local tests and diagnostic scripts.
-
-Examples include:
-
-```text
-app/application/test_browser_question_integration.py
-app/application/test_question_pipeline.py
-app/browser/test_browser.py
-app/test_ai.py
-```
-
-Python files can be syntax checked with:
-
-```powershell
-python -m py_compile path\to\file.py
-```
-
-For example:
-
-```powershell
-python -m py_compile app\application\question_resolver.py
-```
-
-The browser-question integration test verifies the complete local question-handling path:
-
-```text
-Browser control
-      ↓
-Question detection
-      ↓
-Resolver
-      ↓
-Ask user when needed
-      ↓
-Save answer
-      ↓
-Fill browser control
+# Verify Python syntax across all modules
+python -m compileall app run_api.py
+
+# Verify Next.js frontend TypeScript types & production build
+cd frontend
+npm run build
 ```
 
 ---
 
-# Current Implementation Status
+## 9. License
 
-## Working
-
-- Greenhouse job collection
-- Job normalization
-- SQLite job storage
-- Deterministic job filtering
-- Seniority filtering
-- Experience filtering
-- Location filtering
-- Local AI job matching
-- Match scoring
-- `APPLY` / `REVIEW` / `SKIP` recommendations
-- Human job approval
-- Application package generation
-- Application selector
-- Application question resolver
-- Persistent reusable answers
-- Safe profile-based answers
-- Playwright browser automation
-- Resume upload
-- Resume upload verification
-- Browser form verification
-- Unknown required-question handling
-- Human-controlled final submission
-- Public example candidate profile
-- Windows setup script
-- Python dependency requirements
-
-## In Development
-
-- Reliable high-quality cover-letter generation
-- More job-board integrations
-- More robust application-question classification
-- More robust browser automation
-- Application tracking dashboard
-- Additional automated test coverage
-- React/Next.js web dashboard
-- Docker setup
-- CI/CD workflow
-- Additional application platforms
-
----
-
-# Roadmap
-
-## Phase 1 — Job Discovery
-
-- Greenhouse integration
-- Job normalization
-- SQLite storage
-- Deterministic filtering
-
-## Phase 2 — AI Matching
-
-- Local Ollama integration
-- Candidate profile
-- AI job evaluation
-- Match score
-- Recommendation
-- Safety enforcement
-
-## Phase 3 — Application Preparation
-
-- Human approval
-- Application package generation
-- Answer storage
-- Question resolver
-- Reliable cover-letter generation
-
-## Phase 4 — Browser Automation
-
-- Playwright integration
-- Personal information autofill
-- Resume upload
-- Application question handling
-- Form verification
-- Safe stop before submission
-
-## Phase 5 — Dashboard
-
-- Web dashboard
-- Job browsing
-- Match-score visualization
-- Application tracking
-- Application status management
-- Review interface
-
-## Phase 6 — Expansion
-
-- Additional job boards
-- Better application-site support
-- Improved automated tests
-- Docker support
-- CI/CD
-- Improved documentation
-
----
-
-# Design Principles
-
-## Local First
-
-Candidate information and AI processing should remain local whenever practical.
-
-## Deterministic Before AI
-
-Use reliable deterministic rules before using an AI model.
-
-## Human Controlled
-
-AI recommendations should not automatically become application submissions.
-
-## Evidence Based
-
-AI-generated application content should be based only on verified candidate information.
-
-## No Fabrication
-
-Never invent:
-
-- Experience
-- Qualifications
-- Projects
-- Achievements
-- Employers
-- Technologies
-- Years of experience
-- Application answers
-
-## Fail Safely
-
-When the system cannot determine a safe answer, ask the user.
-
-## Modular
-
-Job collection, filtering, matching, application preparation, question resolution, and browser automation are separated into individual components.
-
----
-
-# Security Considerations
-
-Never commit:
-
-```text
-.env
-API keys
-Authentication tokens
-Browser session data
-Personal resumes
-Personal profile data
-Application history
-Saved application answers
-Local databases
-```
-
-Before making a repository public, inspect:
-
-```powershell
-git status
-git ls-files
-```
-
-and verify that no private files are tracked.
-
-The public repository should contain source code and safe example configuration, not personal application data.
-
----
-
-# Limitations
-
-JobAgent is currently a personal project and is not a universal job-application automation platform.
-
-Current limitations include:
-
-- Job-board support is limited
-- Application website structures vary significantly
-- Some application questions require human input
-- Some custom controls require additional handling
-- Local AI performance depends on available hardware
-- Cover-letter generation is still being improved
-- Browser automation is currently focused on supported application flows
-- Final application submission is intentionally manual
-- Different job sites may require site-specific automation work
-- Local AI output must still be reviewed by the user
-
----
-
-# Why This Project Exists
-
-Applying for jobs involves a large amount of repetitive work:
-
-- Searching job boards
-- Reading job descriptions
-- Checking experience requirements
-- Comparing skills
-- Tracking suitable positions
-- Filling repetitive forms
-- Uploading resumes
-- Answering repeated questions
-
-JobAgent explores how much of this repetitive work can be automated locally without giving an AI unrestricted control over the application process.
-
-The objective is not:
-
-> **"Apply to everything automatically."**
-
-The objective is:
-
-> **Reduce repetitive work while keeping the candidate in control.**
-
----
-
-# Disclaimer
-
-JobAgent is a personal automation and experimentation project.
-
-Users are responsible for:
-
-- Reviewing generated content
-- Ensuring application information is accurate
-- Confirming qualifications
-- Reviewing application questions
-- Following the terms and policies of job websites
-- Making the final decision to submit an application
-
-The project should not be used to submit misleading, fraudulent, or inaccurate applications.
-
-Automating interactions with a third-party website may also be subject to that website's terms and policies. Users should verify that their intended use is permitted.
-
----
-
-# License
-
-This project is licensed under the **MIT License**.
-
-See the [`LICENSE`](LICENSE) file for the complete license text.
-
----
-
-# Author
-
-**MD SAFI MAAZ**
-
-Frontend Web Developer
-
-- GitHub: https://github.com/SafiMaaz01
-- LinkedIn: https://www.linkedin.com/in/safimaaz01/
-- Portfolio: https://safimaaz01portfolio.vercel.app/
-
----
-
-## Project Status
-
-JobAgent is an actively developed local-first automation project.
-
-The core job collection, deterministic filtering, local AI matching, human approval, application preparation, question resolution, and Playwright autofill workflow are functional.
-
-The project continues to evolve toward a more complete job-application assistant while maintaining its central principle:
-
-> **Automate the repetitive parts. Keep the important decisions human.**
+JobAgent is released under the **MIT License**. See [`LICENSE`](file:///c:/Users/Maaz/Desktop/JobAgent/LICENSE) for details.
