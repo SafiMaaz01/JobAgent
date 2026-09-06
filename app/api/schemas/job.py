@@ -37,3 +37,15 @@ class JobListResponse(BaseModel):
     page: int
     limit: int
     pages: int
+
+
+class ReviewRequest(BaseModel):
+    status: str  # "approved" | "rejected" | "pending"
+
+
+class ReviewResponse(BaseModel):
+    id: int
+    review_status: str
+    reviewed_at: Optional[str] = None
+    message: str
+

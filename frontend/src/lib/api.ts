@@ -80,6 +80,27 @@ export async function getJobDetail(id: number): Promise<JobDetail> {
   return fetchJson<JobDetail>(`/api/jobs/${id}`);
 }
 
+export async function getReviewQueue(): Promise<JobDetail[]> {
+  return fetchJson<JobDetail[]>("/api/jobs/review/queue");
+}
+
+export async function submitReview(
+  jobId: number,
+  status: "approved" | "rejected" | "pending"
+): Promise<{ id: number; review_status: string; reviewed_at?: string | null; message: string }> {
+  return fetchJson<{ id: number; review_status: string; reviewed_at?: string | null; message: string }>(
+    `/api/jobs/${jobId}/review`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ status }),
+    }
+  );
+}
+
 export async function getTaskStatus(): Promise<TaskStatus> {
   return fetchJson<TaskStatus>("/api/tasks/status");
 }
+

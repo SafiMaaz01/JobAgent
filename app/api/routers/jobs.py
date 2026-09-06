@@ -2,10 +2,17 @@
 import json
 import sqlite3
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from app.api.deps import get_db
-from app.api.schemas.job import JobDetail, JobListResponse, JobSummary
+from app.api.schemas.job import (
+    JobDetail,
+    JobListResponse,
+    JobSummary,
+    ReviewRequest,
+    ReviewResponse,
+)
+from app.approval.review import get_jobs_for_review, update_review_status
 
 router = APIRouter(prefix="/api/jobs", tags=["Jobs"])
 
@@ -160,6 +167,37 @@ def list_jobs(
     )
 
 
+@router.get("/review/queue", response_model=List[JobDetail])
+def get_review_queue_jobs():
+    """Fetch all pending jobs eligible for human review using existing review.py rules."""
+    rows = get_jobs_for_review()
+    items = []
+    for row in rows:
+        job_id = row["id"]
+        parsed_match = parse_match_details_json(row["match_details"])
+        has_app, app_status = get_application_info_for_job(job_id)
+        items.append(
+            JobDetail(
+                id=job_id,
+                source="greenhouse",
+                external_id=str(job_id),
+                company=row["company"],
+                title=row["title"],
+                location=row["location"],
+                url=row["url"],
+                description=row["description"],
+                is_relevant=1,
+                match_score=row["match_score"],
+                recommendation=row["recommendation"],
+                match_details=parsed_match,
+                review_status="pending",
+                has_application=has_app,
+                application_status=app_status,
+            )
+        )
+    return items
+
+
 @router.get("/{job_id}", response_model=JobDetail)
 def get_job_detail(job_id: int, db: sqlite3.Connection = Depends(get_db)):
     """Fetch full job details including description, parsed match details, and application state."""
@@ -193,3 +231,32 @@ def get_job_detail(job_id: int, db: sqlite3.Connection = Depends(get_db)):
         has_application=has_app,
         application_status=app_status,
     )
+
+
+@router.post("/{job_id}/review", response_model=ReviewResponse)
+def review_job(job_id: int, payload: ReviewRequest, db: sqlite3.Connection = Depends(get_db)):
+    """Submit an approve or reject decision for a job delegating to existing update_review_status logic."""
+    status = payload.status.strip().lower()
+    if status not in ("approved", "rejected", "pending"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid review status: '{payload.status}'. Allowed: approved, rejected, pending",
+        )
+
+    row = db.execute("SELECT id, company, title FROM jobs WHERE id = ?", (job_id,)).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail=f"Job with ID {job_id} not found")
+
+    # Call authoritative update logic from existing app.approval.review module
+    update_review_status(job_id, status)
+
+    updated = db.execute("SELECT review_status, reviewed_at FROM jobs WHERE id = ?", (job_id,)).fetchone()
+
+    return ReviewResponse(
+        id=job_id,
+        review_status=updated["review_status"],
+        reviewed_at=updated["reviewed_at"],
+        message=f"Job #{job_id} ({row['company']} - {row['title']}) marked as {status}.",
+    )
+
+

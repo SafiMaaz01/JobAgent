@@ -1,22 +1,45 @@
-export default function ReviewPage() {
+import { getReviewQueue } from "@/lib/api";
+import { JobDetail } from "@/lib/types";
+import ReviewQueueClient from "@/components/ReviewQueueClient";
+
+export const dynamic = "force-dynamic";
+
+export default async function ReviewPage() {
+  let jobs: JobDetail[] = [];
+  let errorMessage: string | null = null;
+
+
+  try {
+    jobs = await getReviewQueue();
+  } catch (err: unknown) {
+    errorMessage =
+      err instanceof Error
+        ? err.message
+        : "Failed to connect to JobAgent FastAPI server";
+  }
+
   return (
     <div>
-      <div className="section-header">
+      {/* Header */}
+      <div className="section-header" style={{ marginBottom: "20px" }}>
         <div>
           <h1 className="page-title">Review Queue</h1>
           <p className="page-subtitle">
-            Evaluate recommended matches awaiting human decision
+            Evaluate high-scoring matched opportunities and approve them for application package preparation
           </p>
         </div>
       </div>
-      <div className="table-container">
-        <div className="empty-state">
-          <div className="empty-state-title">Phase 4 Implementation</div>
-          <div className="empty-state-desc">
-            Focused review queue with match insights and approval actions will be enabled in Phase 4.
-          </div>
+
+      {/* Error state */}
+      {errorMessage && (
+        <div className="error-banner">
+          <div className="error-title">Failed to load review queue</div>
+          <div>{errorMessage}</div>
         </div>
-      </div>
+      )}
+
+      {/* Interactive Review Client */}
+      {!errorMessage && <ReviewQueueClient initialJobs={jobs} />}
     </div>
   );
 }

@@ -65,3 +65,11 @@ export interface TaskStatus {
   progress: number;
   details: Record<string, unknown> | null;
 }
+
+export interface ReviewResponse {
+  id: number;
+  review_status: string;
+  reviewed_at?: string | null;
+  message: string;
+}
+
