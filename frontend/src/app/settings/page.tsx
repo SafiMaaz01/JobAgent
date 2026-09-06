@@ -1,22 +1,22 @@
-export default function SettingsPage() {
-  return (
-    <div>
-      <div className="section-header">
+import { getProfile } from "@/lib/api";
+import SettingsClient from "@/components/SettingsClient";
+
+export const dynamic = "force-dynamic";
+
+export default async function SettingsPage() {
+  let profile;
+  try {
+    profile = await getProfile();
+  } catch (error) {
+    return (
+      <div className="error-banner">
+        <div className="error-title">Failed to Load Profile</div>
         <div>
-          <h1 className="page-title">Settings & Configuration</h1>
-          <p className="page-subtitle">
-            Configure profile, Greenhouse job sources, and question answers
-          </p>
+          {error instanceof Error ? error.message : "Could not connect to JobAgent API to load profile."}
         </div>
       </div>
-      <div className="table-container">
-        <div className="empty-state">
-          <div className="empty-state-title">Phase 7 Implementation</div>
-          <div className="empty-state-desc">
-            Profile editing and sources configuration will be enabled in Phase 7.
-          </div>
-        </div>
-      </div>
-    </div>
-  );
+    );
+  }
+
+  return <SettingsClient initialProfile={profile} />;
 }

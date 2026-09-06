@@ -137,4 +137,52 @@ export interface PreparePackageResponse {
   package_file: string;
 }
 
+export interface EducationItem {
+  degree: string;
+  institution: string;
+  start?: string;
+  end?: string;
+  graduation?: string;
+  [key: string]: unknown;
+}
+
+export interface ExperienceItem {
+  company: string;
+  role: string;
+  start?: string;
+  end?: string;
+  achievements?: string[];
+  [key: string]: unknown;
+}
+
+export interface ApplicationPreferences {
+  okay_with_five_day_office?: boolean;
+  willing_to_relocate?: boolean;
+  [key: string]: unknown;
+}
+
+export interface Profile {
+  name: string;
+  email: string;
+  phone: string;
+  location: string;
+  target_roles: string[];
+  skills: string[];
+  years_of_experience: number;
+  education: EducationItem[];
+  preferred_locations: string[];
+  remote_preference: string;
+  minimum_salary: string;
+  notice_period: string;
+  work_authorization: string;
+  application_preferences?: ApplicationPreferences | null;
+  summary: string;
+  experience: ExperienceItem[];
+  projects?: Array<Record<string, unknown>>;
+  github?: string | null;
+  linkedin?: string | null;
+  portfolio?: string | null;
+  [key: string]: unknown;
+}
+
 

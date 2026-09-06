@@ -8,6 +8,7 @@ import {
   PreparePackageResponse,
   TaskStatus,
   TaskActionResponse,
+  Profile,
 } from "./types";
 
 const API_BASE_URL =
@@ -156,6 +157,20 @@ export async function respondToTask(
 export async function cancelTask(): Promise<TaskActionResponse> {
   return fetchJson<TaskActionResponse>("/api/tasks/cancel", {
     method: "POST",
+  });
+}
+
+export async function getProfile(): Promise<Profile> {
+  return fetchJson<Profile>("/api/config/profile");
+}
+
+export async function updateProfile(profile: Profile): Promise<Profile> {
+  return fetchJson<Profile>("/api/config/profile", {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(profile),
   });
 }
 
