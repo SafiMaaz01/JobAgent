@@ -1,121 +1,225 @@
-/**
- * Main JobAgent Overview Dashboard (Server Component).
- * 
- * Fetches real-time telemetry from FastAPI including pipeline counts,
- * review backlogs, and recent high-scoring matches. Renders server-side
- * with zero client JavaScript overhead for initial page load.
- */
+"use client";
+
+import React, { useEffect, useState } from "react";
 import { getDashboardStats, getRecentHighScoringJobs } from "@/lib/api";
-import MetricCard from "@/components/MetricCard";
+import { DashboardStats, JobListResponse } from "@/lib/types";
+import StatCard from "@/components/ui/StatCard";
 import RecentJobsTable from "@/components/RecentJobsTable";
+import DashboardCharts from "@/components/DashboardCharts";
+import SystemStatusPanel from "@/components/SystemStatusPanel";
+import Skeleton from "@/components/ui/Skeleton";
+import { Sparkles, AlertTriangle, ArrowRight } from "lucide-react";
+import Link from "next/link";
 
-// Disable Next.js data caching so every reload reflects fresh SQLite database state
-export const dynamic = "force-dynamic";
+export default function DashboardPage() {
+  const [stats, setStats] = useState<DashboardStats | null>(null);
+  const [jobsData, setJobsData] = useState<JobListResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-export default async function DashboardPage() {
-
-  let stats;
-  let jobsData;
-  let errorMessage: string | null = null;
-
-  try {
-    const [statsRes, jobsRes] = await Promise.all([
-      getDashboardStats(),
-      getRecentHighScoringJobs(10),
-    ]);
-    stats = statsRes;
-    jobsData = jobsRes;
-  } catch (err: unknown) {
-    errorMessage =
-      err instanceof Error
-        ? err.message
-        : "Failed to connect to JobAgent FastAPI server at http://127.0.0.1:8000";
-  }
+  useEffect(() => {
+    let isMounted = true;
+    async function loadDashboardData() {
+      try {
+        const [statsRes, jobsRes] = await Promise.all([
+          getDashboardStats(),
+          getRecentHighScoringJobs(10),
+        ]);
+        if (isMounted) {
+          setStats(statsRes);
+          setJobsData(jobsRes);
+          setLoading(false);
+        }
+      } catch (err: unknown) {
+        if (isMounted) {
+          setErrorMessage(
+            err instanceof Error
+              ? err.message
+              : "Failed to connect to JobAgent FastAPI backend at http://127.0.0.1:8000"
+          );
+          setLoading(false);
+        }
+      }
+    }
+    loadDashboardData();
+  }, []);
 
   return (
     <div>
-      {/* Page Header */}
-      <div className="section-header" style={{ marginBottom: "20px" }}>
+      {/* Hero Command Center Header */}
+      <div
+        className="glass-card"
+        style={{
+          padding: "24px 28px",
+          marginBottom: "28px",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          flexWrap: "wrap",
+          gap: "16px",
+          background: "linear-gradient(135deg, rgba(19, 27, 46, 0.9) 0%, rgba(26, 36, 61, 0.9) 100%)",
+        }}
+      >
         <div>
-          <h1 className="page-title">Overview Dashboard</h1>
-          <p className="page-subtitle">
-            Live telemetry and pipeline metrics from local SQLite database
+          <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "6px" }}>
+            <h1 className="display-title">AI Operations Command Center</h1>
+            <span className="badge-semantic badge-autofilling">
+              <Sparkles size={11} />
+              <span>Live SQLite State</span>
+            </span>
+          </div>
+          <p className="caption-text" style={{ fontSize: "13.5px", maxWidth: "600px" }}>
+            Autonomous job ingestion, Ollama LLM match evaluation, human-in-the-loop review, and Playwright application automation.
           </p>
+        </div>
+
+        <div style={{ display: "flex", gap: "12px" }}>
+          <Link href="/review" className="btn-primary">
+            <span>Review Queue</span>
+            {stats && stats.pending_review > 0 && (
+              <span
+                style={{
+                  background: "#ffffff",
+                  color: "var(--accent-primary)",
+                  padding: "1px 7px",
+                  borderRadius: "99px",
+                  fontSize: "11px",
+                  fontWeight: "800",
+                }}
+              >
+                {stats.pending_review}
+              </span>
+            )}
+            <ArrowRight size={14} />
+          </Link>
+          <Link href="/jobs" className="btn-secondary">
+            <span>Jobs Directory</span>
+          </Link>
         </div>
       </div>
 
-      {/* Error State if Backend Unavailable */}
+      {/* Error Banner */}
       {errorMessage && (
-        <div className="error-banner">
-          <div className="error-title">Backend Connection Error</div>
-          <div>{errorMessage}</div>
-          <div style={{ marginTop: "8px", fontSize: "12px", color: "var(--text-secondary)" }}>
-            Ensure the FastAPI server is running: <code>python run_api.py</code>
+        <div
+          className="glass-card"
+          style={{
+            padding: "18px 24px",
+            marginBottom: "28px",
+            borderColor: "var(--danger-border)",
+            background: "var(--danger-surface)",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: "12px", color: "var(--danger)" }}>
+            <AlertTriangle size={20} />
+            <div>
+              <div style={{ fontWeight: "700", fontSize: "14px" }}>Backend Connection Offline</div>
+              <div style={{ fontSize: "12.5px", color: "#fca5a5", marginTop: "2px" }}>
+                {errorMessage}
+              </div>
+            </div>
           </div>
         </div>
       )}
 
-      {/* KPI Metrics Grid */}
+      {/* Loading Skeletons */}
+      {loading && (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(195px, 1fr))", gap: "16px", marginBottom: "28px" }}>
+          {Array.from({ length: 7 }).map((_, i) => (
+            <Skeleton key={i} height="110px" borderRadius="var(--radius-lg)" />
+          ))}
+        </div>
+      )}
+
+      {/* KPI Metrics Command Grid */}
       {stats && (
-        <div className="metrics-grid">
-          <MetricCard
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(195px, 1fr))",
+            gap: "16px",
+            marginBottom: "28px",
+          }}
+        >
+          <StatCard
             label="Total Ingested"
             value={stats.total_jobs.toLocaleString()}
-            subText="Greenhouse job boards"
-            badge="DB"
+            iconName="briefcase"
+            subtext="Greenhouse & collectors"
+            accentColor="indigo"
           />
-          <MetricCard
+          <StatCard
             label="Relevant Jobs"
             value={stats.relevant_jobs}
-            subText="Filtered candidate matches"
-            badge="Filter"
+            iconName="target"
+            subtext="Candidate skill match"
+            accentColor="cyan"
           />
-          <MetricCard
+          <StatCard
             label="Pending Review"
             value={stats.pending_review}
-            subText="Awaiting user decision"
-            badge="Review"
+            iconName="clock"
+            subtext="Awaiting your approval"
+            accentColor="amber"
           />
-          <MetricCard
-            label="Approved"
+          <StatCard
+            label="Approved Jobs"
             value={stats.approved}
-            subText="Ready for application prep"
-            badge="Approved"
+            iconName="check"
+            subtext="Ready for package prep"
+            accentColor="emerald"
           />
-          <MetricCard
-            label="Ready Applications"
+          <StatCard
+            label="Ready Packages"
             value={stats.ready_applications}
-            subText="Packages prepared in data/"
-            badge="Apps"
+            iconName="file"
+            subtext="JSON & QA answers ready"
+            accentColor="purple"
           />
-          <MetricCard
-            label="Applied / Submitted"
+          <StatCard
+            label="Submitted"
             value={stats.applied}
-            subText="Verified browser submissions"
-            badge="Submitted"
+            iconName="send"
+            subtext="Verified applications"
+            accentColor="emerald"
           />
-          <MetricCard
+          <StatCard
             label="Avg Match Score"
-            value={`${stats.avg_match_score}%`}
-            subText="AI evaluation average"
-            badge="Score"
+            value={`${Math.round(stats.avg_match_score)}%`}
+            iconName="sparkles"
+            subtext="Ollama LLM score avg"
+            accentColor="cyan"
           />
         </div>
       )}
 
-      {/* Recent High-Scoring Jobs Table */}
-      <div style={{ marginTop: "32px" }}>
-        <div className="section-header">
+      {/* Real Data Visualizations */}
+      {stats && jobsData && (
+        <DashboardCharts stats={stats} recentJobs={jobsData.items} />
+      )}
+
+      {/* Current System Status Panel */}
+      {stats && <SystemStatusPanel stats={stats} />}
+
+      {/* Top Opportunity Highlights Table */}
+      <div>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            marginBottom: "16px",
+          }}
+        >
           <div>
-            <h2 className="section-title">Top Matched & Recent Jobs</h2>
-            <p className="page-subtitle">
-              Ranked by AI match score from local evaluations
+            <h2 className="section-title">Top Matched Opportunities</h2>
+            <p className="caption-text">
+              Highest scoring jobs evaluated by local LLM
             </p>
           </div>
           {jobsData && (
-            <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>
-              Showing {jobsData.items.length} of {jobsData.total} jobs
-            </span>
+            <Link href="/jobs" style={{ fontSize: "12.5px", color: "var(--accent-light)", fontWeight: "600" }}>
+              View all {jobsData.total} jobs →
+            </Link>
           )}
         </div>
 
@@ -123,10 +227,8 @@ export default async function DashboardPage() {
           <RecentJobsTable jobs={jobsData.items} />
         ) : (
           !errorMessage && (
-            <div className="table-container">
-              <div className="empty-state">
-                <div className="empty-state-title">Loading jobs...</div>
-              </div>
+            <div className="glass-card" style={{ padding: "40px", textAlign: "center", color: "var(--text-muted)" }}>
+              Loading top opportunity matches...
             </div>
           )
         )}

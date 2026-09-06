@@ -2864,41 +2864,38 @@ def _find_school_fallback(page):
 
 
 def handle_candidate_location(page, profile, handled_question_ids):
-    """Select the real Greenhouse autocomplete suggestion for current city."""
-    field = page.locator("#candidate-location").first
-    if field.count() == 0 or not field.is_visible():
-        raise RuntimeError("Could not find the Greenhouse candidate location field.")
+    """Select the real Greenhouse autocomplete suggestion for current city if location field is present."""
+    candidate_locators = [
+        page.locator("#candidate-location"),
+        page.locator("#location"),
+        page.locator("input[name*='location']"),
+        page.locator("input[id*='location']"),
+        page.locator("input[placeholder*='Location']"),
+        page.locator("input[placeholder*='City']"),
+    ]
+
+    field = None
+    for loc in candidate_locators:
+        if loc.count() > 0 and loc.first.is_visible():
+            field = loc.first
+            break
+
+    if field is None:
+        print("Candidate location field not present on this form. Skipping.")
+        return []
 
     location = profile.get("location", "Jamshedpur, India")
-    field.fill(location)
-    page.wait_for_timeout(1200)
-
-    options = page.locator('[role="option"]:visible')
-    selected_text = None
-    for index in range(options.count()):
-        option = options.nth(index)
-        try:
-            text = option.inner_text().strip()
-            if "jamshedpur" in text.lower():
-                option.click()
-                page.wait_for_timeout(500)
-                selected_text = text
-                break
-        except Exception:
-            continue
-
-    if selected_text is None:
-        # Retry with the city + state wording used by Greenhouse.
-        field.fill("")
-        page.wait_for_timeout(200)
-        field.fill("Jamshedpur, Jharkhand")
+    try:
+        field.fill(location)
         page.wait_for_timeout(1200)
+
         options = page.locator('[role="option"]:visible')
+        selected_text = None
         for index in range(options.count()):
             option = options.nth(index)
             try:
                 text = option.inner_text().strip()
-                if "jamshedpur" in text.lower():
+                if "jamshedpur" in text.lower() or "india" in text.lower():
                     option.click()
                     page.wait_for_timeout(500)
                     selected_text = text
@@ -2906,19 +2903,44 @@ def handle_candidate_location(page, profile, handled_question_ids):
             except Exception:
                 continue
 
-    if selected_text is None:
-        raise RuntimeError("Could not select Jamshedpur from the Greenhouse location suggestions.")
+        if selected_text is None:
+            # Retry with state
+            field.fill("")
+            page.wait_for_timeout(200)
+            field.fill("Jamshedpur, Jharkhand")
+            page.wait_for_timeout(1200)
+            options = page.locator('[role="option"]:visible')
+            for index in range(options.count()):
+                option = options.nth(index)
+                try:
+                    text = option.inner_text().strip()
+                    if "jamshedpur" in text.lower():
+                        option.click()
+                        page.wait_for_timeout(500)
+                        selected_text = text
+                        break
+                except Exception:
+                    continue
 
-    handled_question_ids.add("candidate-location")
-    print(f"Filled Location (City): {selected_text}")
-    return [{
-        "id": "candidate-location",
-        "question": "Location (City)",
-        "type": "text",
-        "custom": True,
-        "required": True,
-        "expected_location": "Jamshedpur",
-    }]
+        if selected_text is None and options.count() > 0:
+            options.first.click()
+            page.wait_for_timeout(500)
+            selected_text = location
+
+        field_id = field.get_attribute("id") or "candidate-location"
+        handled_question_ids.add(field_id)
+        print(f"Filled Location (City): {selected_text or location}")
+        return [{
+            "id": field_id,
+            "question": "Location (City)",
+            "type": "text",
+            "custom": True,
+            "required": False,
+            "expected_location": selected_text or location,
+        }]
+    except Exception as error:
+        print(f"WARNING handling candidate location: {error}")
+        return []
 
 def handle_education_fields(page, handled_question_ids):
     """Fill the known education fields deterministically."""
@@ -3356,10 +3378,20 @@ def handle_internship_availability(page, handled_question_ids):
 def handle_all_known_fields(page, profile, handled_question_ids):
     """Run every deterministic handler before the generic question scanner."""
     handled = []
-    handled.extend(handle_candidate_location(page, profile, handled_question_ids))
-    handled.extend(handle_education_fields(page, handled_question_ids))
-    handled.extend(handle_verified_application_questions(page, handled_question_ids))
-    handled.extend(handle_internship_availability(page, handled_question_ids))
+
+    for name, func, args in [
+        ("Candidate Location", handle_candidate_location, (page, profile, handled_question_ids)),
+        ("Education Fields", handle_education_fields, (page, handled_question_ids)),
+        ("Verified Application Questions", handle_verified_application_questions, (page, handled_question_ids)),
+        ("Internship Availability", handle_internship_availability, (page, handled_question_ids)),
+    ]:
+        try:
+            res = func(*args)
+            if res:
+                handled.extend(res)
+        except Exception as error:
+            print(f"Notice: {name} handler skipped or not present on this form ({error}).")
+
     return handled
 
 def main(package_path=None):
@@ -3471,70 +3503,74 @@ def main(package_path=None):
         # Locate Greenhouse application form
         # -------------------------------------------------
 
-        if "job-boards.greenhouse.io/embed" not in page.url:
+        # Check if form is already visible on the main page
+        has_form_on_page = page.locator("#first_name, #email, #application, form#application_form").count() > 0
 
-            print(
-                "Opening application form..."
-            )
+        if not has_form_on_page and "job-boards.greenhouse.io/embed" not in page.url:
+            print("Opening application form...")
 
-            apply_link = page.get_by_role(
-                "link",
-                name="Apply for this role",
-            )
+            apply_clicked = False
+            # Try multiple candidate locators for the Apply button/link
+            apply_candidates = [
+                page.get_by_role("link", name=re.compile(r"apply", re.I)),
+                page.get_by_role("button", name=re.compile(r"apply", re.I)),
+                page.locator('a[href*="#app"], a[href*="apply"], #apply_button, button[id*="apply"], [data-action*="apply"]'),
+                page.locator('a:has-text("Apply"), button:has-text("Apply")'),
+            ]
 
-            if apply_link.count() > 0:
+            for candidate in apply_candidates:
+                if candidate.count() > 0:
+                    try:
+                        target = candidate.first
+                        if target.is_visible():
+                            target.click()
+                            page.wait_for_timeout(2500)
+                            apply_clicked = True
+                            print("Clicked Apply button/link.")
+                            break
+                    except Exception:
+                        continue
 
-                apply_link.click()
+            if not apply_clicked:
+                print("WARNING: Apply link not found; scrolling to check for application form...")
+                try:
+                    page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                    page.wait_for_timeout(1500)
+                except Exception:
+                    pass
 
-                page.wait_for_timeout(
-                    2500
-                )
-
-            else:
-
-                print(
-                    "WARNING: Apply link not found."
-                )
-
+        # Locate Greenhouse application frame or page
         greenhouse_frame = None
 
         for frame in page.frames:
-
             if (
-                "job-boards.greenhouse.io/embed/job_app"
-                in frame.url
+                "job-boards.greenhouse.io" in frame.url
+                or "greenhouse.io" in frame.url
+                or "embed/job_app" in frame.url
             ):
-
-                greenhouse_frame = frame
-
-                break
+                if frame.locator("#first_name, #email, input[name*='first_name']").count() > 0:
+                    greenhouse_frame = frame
+                    break
 
         if greenhouse_frame is None:
-
             if (
-                "job-boards.greenhouse.io/embed/job_app"
-                in page.url
+                "greenhouse.io" in page.url
+                or page.locator("#first_name, #email, #application, form").count() > 0
             ):
-
                 form_page = page
-
             else:
-
-                print(
-                    "Could not find Greenhouse application form."
-                )
-
-                browser.close()
-
-                return False
-
+                # Wait briefly and re-check before failing
+                page.wait_for_timeout(2000)
+                if page.locator("#first_name, #email, #application, form").count() > 0:
+                    form_page = page
+                else:
+                    print("Could not find Greenhouse application form.")
+                    browser.close()
+                    return False
         else:
-
             form_page = greenhouse_frame
 
-        print(
-            "Greenhouse application form found."
-        )
+        print("Greenhouse application form found.")
 
         form_page.wait_for_timeout(
             1500

@@ -93,6 +93,27 @@ def is_relocation_question(question: str) -> bool:
     return any(re.search(pattern, text) for pattern in patterns)
 
 
+def is_office_or_onsite_question(question: str) -> bool:
+    text = normalize_question(question)
+
+    patterns = [
+        r"office location",
+        r"work.*from.*office",
+        r"working.*from.*office",
+        r"5 days a week",
+        r"five days a week",
+        r"in-office",
+        r"in office",
+        r"on-site",
+        r"onsite",
+        r"work on site",
+        r"work onsite",
+        r"commute to.*office",
+    ]
+
+    return any(re.search(pattern, text) for pattern in patterns)
+
+
 def is_react_experience_question(question: str) -> bool:
     text = normalize_question(question)
 
@@ -159,6 +180,14 @@ def answer_from_profile(question: str, profile: dict) -> str | None:
             return "No"
 
         return None
+
+    if is_office_or_onsite_question(question):
+        preferences = profile.get("application_preferences", {})
+
+        if preferences.get("okay_with_five_day_office") is False:
+            return "No"
+
+        return "Yes"
 
     if is_react_experience_question(question):
         skills = {

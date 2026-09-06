@@ -1,20 +1,23 @@
 "use client";
 
-/**
- * Slide-over drawer component for inspecting complete job details.
- * 
- * Renders full company data, job description, match score, recommendation,
- * and AI analysis (strong matches, missing requirements, concerns, model reasoning).
- */
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import { JobDetail } from "@/lib/types";
-
-import { getJobDetail } from "@/lib/api";
+import { getJobDetail, submitReview } from "@/lib/api";
+import ScoreRing from "@/components/ui/ScoreRing";
+import { RecommendationBadge, ReviewStatusBadge } from "./StatusBadge";
+import { useToast } from "@/components/ui/Toast";
 import {
-  MatchScoreBadge,
-  RecommendationBadge,
-  ReviewStatusBadge,
-} from "./StatusBadge";
+  X,
+  Building2,
+  MapPin,
+  ExternalLink,
+  CheckCircle,
+  XCircle,
+  AlertTriangle,
+  Check,
+  FileText,
+} from "lucide-react";
 
 interface JobDetailDrawerProps {
   jobId: number | null;
@@ -25,6 +28,9 @@ export default function JobDetailDrawer({ jobId, onClose }: JobDetailDrawerProps
   const [job, setJob] = useState<JobDetail | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [actionLoading, setActionLoading] = useState(false);
+  const [activeTab, setActiveTab] = useState<"analysis" | "info" | "description">("analysis");
+  const { showToast } = useToast();
 
   useEffect(() => {
     if (!jobId) {
@@ -60,242 +66,421 @@ export default function JobDetailDrawer({ jobId, onClose }: JobDetailDrawerProps
     };
   }, [jobId]);
 
-  // Handle ESC key to close
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
+      if (e.key === "Escape" && jobId) {
         onClose();
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [onClose]);
+  }, [jobId, onClose]);
 
   if (!jobId) return null;
+
+  const handleReviewAction = async (status: "approved" | "rejected") => {
+    if (!job) return;
+    setActionLoading(true);
+    try {
+      await submitReview(job.id, status);
+      setJob((prev) => (prev ? { ...prev, review_status: status } : null));
+      showToast(
+        `Job ${status === "approved" ? "Approved" : "Rejected"}`,
+        `${job.title} at ${job.company}`,
+        status === "approved" ? "success" : "info"
+      );
+    } catch (err: unknown) {
+      showToast(
+        "Action Failed",
+        err instanceof Error ? err.message : "Failed to update review status",
+        "error"
+      );
+    } finally {
+      setActionLoading(false);
+    }
+  };
 
   const match = job?.match_details;
 
   return (
-    <div className="drawer-backdrop" onClick={onClose}>
-      <div className="drawer-panel" onClick={(e) => e.stopPropagation()}>
-        {/* Drawer Header */}
-        <div className="drawer-header">
-          <div>
-            <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
-              <span style={{ fontSize: "11px", color: "var(--text-muted)", fontFamily: "monospace" }}>
-                ID #{jobId}
-              </span>
-              {job && <ReviewStatusBadge status={job.review_status} />}
-              {job?.has_application && (
-                <span
-                  style={{
-                    fontSize: "11px",
-                    color: "var(--purple)",
-                    background: "var(--purple-surface)",
-                    padding: "2px 6px",
-                    borderRadius: "4px",
-                    fontWeight: "600",
-                  }}
-                >
-                  Application Prepared
-                </span>
-              )}
-            </div>
-            <h2 style={{ fontSize: "18px", fontWeight: "700", color: "var(--text-primary)" }}>
-              {job ? job.title : "Loading job..."}
-            </h2>
-            <div style={{ fontSize: "13px", color: "var(--text-secondary)", marginTop: "2px" }}>
-              {job ? `${job.company} • ${job.location || "Remote / Not specified"}` : ""}
-            </div>
-          </div>
-          <button
-            className="drawer-close-btn"
-            onClick={onClose}
-            aria-label="Close drawer"
+    <AnimatePresence>
+      <div
+        style={{
+          position: "fixed",
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: "rgba(0, 0, 0, 0.75)",
+          backdropFilter: "blur(6px)",
+          WebkitBackdropFilter: "blur(6px)",
+          zIndex: 50,
+          display: "flex",
+          justifyContent: "flex-end",
+        }}
+        onClick={onClose}
+      >
+        <motion.div
+          initial={{ x: "100%" }}
+          animate={{ x: 0 }}
+          exit={{ x: "100%" }}
+          transition={{ type: "spring", damping: 30, stiffness: 300 }}
+          onClick={(e) => e.stopPropagation()}
+          style={{
+            width: "640px",
+            maxWidth: "94vw",
+            height: "100vh",
+            backgroundColor: "rgba(13, 18, 29, 0.98)",
+            borderLeft: "1px solid var(--border-medium)",
+            boxShadow: "-10px 0 40px rgba(0, 0, 0, 0.7)",
+            display: "flex",
+            flexDirection: "column",
+            overflow: "hidden",
+          }}
+        >
+          {/* Header */}
+          <div
+            style={{
+              padding: "20px 24px",
+              borderBottom: "1px solid var(--border-subtle)",
+              background: "rgba(19, 27, 46, 0.95)",
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "flex-start",
+              gap: "16px",
+            }}
           >
-            ✕
-          </button>
-        </div>
-
-        {/* Drawer Content */}
-        <div className="drawer-content">
-          {loading && (
             <div>
-              <div className="skeleton" style={{ width: "100%", height: "90px", marginBottom: "16px" }} />
-              <div className="skeleton" style={{ width: "100%", height: "160px", marginBottom: "16px" }} />
-              <div className="skeleton" style={{ width: "100%", height: "240px" }} />
-            </div>
-          )}
-
-          {error && (
-            <div className="error-banner">
-              <div className="error-title">Failed to load details</div>
-              <div>{error}</div>
-            </div>
-          )}
-
-          {job && !loading && (
-            <>
-              {/* Match Insights Banner */}
-              <div>
-                <div className="drawer-section-title">Match Assessment</div>
-                <div className="insight-card">
-                  <div
+              <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "6px" }}>
+                <span className="mono-text" style={{ fontSize: "11px", color: "var(--text-muted)" }}>
+                  JOB #{jobId}
+                </span>
+                {job && <ReviewStatusBadge status={job.review_status} />}
+                {job?.has_application && (
+                  <span
                     style={{
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                      marginBottom: "12px",
-                      paddingBottom: "12px",
-                      borderBottom: "1px solid var(--border-color)",
+                      fontSize: "11px",
+                      color: "var(--accent-light)",
+                      background: "var(--accent-surface)",
+                      border: "1px solid var(--border-glow)",
+                      padding: "2px 7px",
+                      borderRadius: "var(--radius-full)",
+                      fontWeight: "600",
                     }}
                   >
-                    <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                      <span style={{ fontSize: "12px", color: "var(--text-secondary)" }}>
-                        AI Score:
-                      </span>
-                      <MatchScoreBadge score={job.match_score} />
-                    </div>
-                    <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                      <span style={{ fontSize: "12px", color: "var(--text-secondary)" }}>
-                        Recommendation:
-                      </span>
-                      <RecommendationBadge recommendation={job.recommendation} />
-                    </div>
-                  </div>
-
-                  {match?.reason && (
-                    <div style={{ marginBottom: "14px" }}>
-                      <div style={{ fontSize: "11px", color: "var(--text-muted)", marginBottom: "4px", textTransform: "uppercase" }}>
-                        Reasoning
-                      </div>
-                      <p style={{ fontSize: "13px", color: "var(--text-primary)", lineHeight: 1.5 }}>
-                        {match.reason}
-                      </p>
-                    </div>
-                  )}
-
-                  {/* Strong Matches */}
-                  {match?.strong_matches && match.strong_matches.length > 0 && (
-                    <div style={{ marginBottom: "12px" }}>
-                      <div style={{ fontSize: "11px", color: "var(--success)", marginBottom: "6px", fontWeight: "600" }}>
-                        ✓ Strong Matches ({match.strong_matches.length})
-                      </div>
-                      <div className="tag-list">
-                        {match.strong_matches.map((item, idx) => (
-                          <span key={idx} className="tag-item tag-item-strong">
-                            {item}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Missing Requirements */}
-                  {match?.minimum_requirements_missing && match.minimum_requirements_missing.length > 0 && (
-                    <div style={{ marginBottom: "12px" }}>
-                      <div style={{ fontSize: "11px", color: "var(--danger)", marginBottom: "6px", fontWeight: "600" }}>
-                        ✕ Missing Requirements ({match.minimum_requirements_missing.length})
-                      </div>
-                      <div className="tag-list">
-                        {match.minimum_requirements_missing.map((item, idx) => (
-                          <span key={idx} className="tag-item tag-item-missing">
-                            {item}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Concerns */}
-                  {match?.concerns && match.concerns.length > 0 && (
-                    <div style={{ marginBottom: "8px" }}>
-                      <div style={{ fontSize: "11px", color: "var(--warning)", marginBottom: "6px", fontWeight: "600" }}>
-                        ⚠ Potential Concerns ({match.concerns.length})
-                      </div>
-                      <div className="tag-list">
-                        {match.concerns.map((item, idx) => (
-                          <span key={idx} className="tag-item tag-item-concern">
-                            {item}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {!match?.reason && !match?.strong_matches && (
-                    <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>
-                      Detailed matcher evaluation not yet generated for this listing.
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Quick Info & Links */}
-              <div>
-                <div className="drawer-section-title">Job Information</div>
-                <div
-                  style={{
-                    background: "var(--bg-subtle)",
-                    border: "1px solid var(--border-color)",
-                    borderRadius: "var(--radius-lg)",
-                    padding: "14px 16px",
-                    display: "grid",
-                    gridTemplateColumns: "1fr 1fr",
-                    gap: "12px",
-                    fontSize: "12px",
-                  }}
-                >
-                  <div>
-                    <span style={{ color: "var(--text-muted)" }}>Source:</span>{" "}
-                    <span style={{ color: "var(--text-primary)", fontWeight: "500" }}>
-                      {job.source}
-                    </span>
-                  </div>
-                  <div>
-                    <span style={{ color: "var(--text-muted)" }}>External ID:</span>{" "}
-                    <span style={{ color: "var(--text-primary)", fontFamily: "monospace" }}>
-                      {job.external_id}
-                    </span>
-                  </div>
-                  <div>
-                    <span style={{ color: "var(--text-muted)" }}>Posted:</span>{" "}
-                    <span style={{ color: "var(--text-primary)" }}>
-                      {job.posted_at ? new Date(job.posted_at).toLocaleDateString() : "Unknown"}
-                    </span>
-                  </div>
-                  <div>
-                    <span style={{ color: "var(--text-muted)" }}>External URL:</span>{" "}
-                    <a
-                      href={job.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      style={{ color: "var(--brand-light)", fontWeight: "500" }}
-                    >
-                      Open Posting ↗
-                    </a>
-                  </div>
-                </div>
-              </div>
-
-              {/* Full Description */}
-              <div>
-                <div className="drawer-section-title">Job Description</div>
-                {job.description ? (
-                  <div
-                    className="job-description-box"
-                    dangerouslySetInnerHTML={{ __html: job.description }}
-                  />
-                ) : (
-                  <div className="job-description-box" style={{ color: "var(--text-muted)" }}>
-                    No description text recorded in database.
-                  </div>
+                    Package Prepared
+                  </span>
                 )}
               </div>
-            </>
+              <h2 style={{ fontSize: "18px", fontWeight: "800", color: "var(--text-primary)", letterSpacing: "-0.01em" }}>
+                {job ? job.title : "Loading opportunity details..."}
+              </h2>
+              <div style={{ display: "flex", alignItems: "center", gap: "10px", marginTop: "4px", fontSize: "13px", color: "var(--text-secondary)" }}>
+                <span style={{ fontWeight: "600" }}>{job?.company}</span>
+                <span>•</span>
+                <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+                  <MapPin size={13} color="var(--text-muted)" />
+                  <span>{job?.location || "Remote / Flexible"}</span>
+                </div>
+              </div>
+            </div>
+
+            <button
+              onClick={onClose}
+              style={{
+                background: "var(--bg-surface-1)",
+                border: "1px solid var(--border-subtle)",
+                borderRadius: "var(--radius-sm)",
+                color: "var(--text-secondary)",
+                width: "32px",
+                height: "32px",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                cursor: "pointer",
+              }}
+            >
+              <X size={18} />
+            </button>
+          </div>
+
+          {/* Navigation Tabs */}
+          <div
+            style={{
+              padding: "0 24px",
+              background: "var(--bg-surface-0)",
+              borderBottom: "1px solid var(--border-subtle)",
+              display: "flex",
+              gap: "20px",
+            }}
+          >
+            {[
+              { id: "analysis", label: "AI Analysis" },
+              { id: "info", label: "Metadata & Links" },
+              { id: "description", label: "Job Description" },
+            ].map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id as typeof activeTab)}
+                style={{
+                  padding: "12px 0",
+                  background: "none",
+                  border: "none",
+                  borderBottom: activeTab === tab.id ? "2px solid var(--accent-primary)" : "2px solid transparent",
+                  color: activeTab === tab.id ? "var(--text-primary)" : "var(--text-secondary)",
+                  fontWeight: activeTab === tab.id ? "700" : "500",
+                  fontSize: "13px",
+                  cursor: "pointer",
+                }}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Drawer Body */}
+          <div style={{ flex: 1, overflowY: "auto", padding: "24px", display: "flex", flexDirection: "column", gap: "24px" }}>
+            {loading && (
+              <div style={{ padding: "40px", textAlign: "center", color: "var(--text-muted)" }}>
+                Loading full detail snapshot...
+              </div>
+            )}
+
+            {error && (
+              <div className="glass-card" style={{ padding: "16px", borderColor: "var(--danger-border)", background: "var(--danger-surface)", color: "#fca5a5" }}>
+                {error}
+              </div>
+            )}
+
+            {job && !loading && (
+              <>
+                {/* Tab 1: AI Analysis */}
+                {activeTab === "analysis" && (
+                  <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
+                    {/* Score & Recommendation Banner */}
+                    <div
+                      className="glass-card"
+                      style={{
+                        padding: "20px",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        background: "linear-gradient(135deg, rgba(19, 27, 46, 0.9) 0%, rgba(26, 36, 61, 0.9) 100%)",
+                      }}
+                    >
+                      <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
+                        <ScoreRing score={job.match_score} size={54} strokeWidth={4.5} />
+                        <div>
+                          <div style={{ fontSize: "11px", fontWeight: "700", textTransform: "uppercase", color: "var(--text-muted)" }}>
+                            AI Compatibility Score
+                          </div>
+                          <div style={{ fontSize: "14px", fontWeight: "700", color: "var(--text-primary)", marginTop: "2px" }}>
+                            {job.match_score != null ? `${job.match_score}% Match` : "Not evaluated"}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div>
+                        <div style={{ fontSize: "11px", fontWeight: "700", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: "4px" }}>
+                          Recommendation
+                        </div>
+                        <RecommendationBadge recommendation={job.recommendation} />
+                      </div>
+                    </div>
+
+                    {/* Reasoning */}
+                    {match?.reason && (
+                      <div className="glass-card" style={{ padding: "18px" }}>
+                        <div style={{ fontSize: "11px", fontWeight: "700", textTransform: "uppercase", color: "var(--text-secondary)", marginBottom: "6px" }}>
+                          Ollama LLM Reasoning
+                        </div>
+                        <p style={{ fontSize: "13px", color: "var(--text-primary)", lineHeight: 1.6 }}>
+                          {match.reason}
+                        </p>
+                      </div>
+                    )}
+
+                    {/* Strong Matches */}
+                    {match?.strong_matches && match.strong_matches.length > 0 && (
+                      <div>
+                        <div style={{ fontSize: "12px", fontWeight: "700", color: "var(--success)", marginBottom: "8px", display: "flex", alignItems: "center", gap: "6px" }}>
+                          <CheckCircle size={14} />
+                          <span>Strong Candidate Qualifications ({match.strong_matches.length})</span>
+                        </div>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
+                          {match.strong_matches.map((item, idx) => (
+                            <span
+                              key={idx}
+                              style={{
+                                fontSize: "12px",
+                                padding: "4px 10px",
+                                borderRadius: "var(--radius-sm)",
+                                background: "var(--success-surface)",
+                                border: "1px solid var(--success-border)",
+                                color: "var(--success)",
+                              }}
+                            >
+                              {item}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Missing Requirements */}
+                    {match?.minimum_requirements_missing && match.minimum_requirements_missing.length > 0 && (
+                      <div>
+                        <div style={{ fontSize: "12px", fontWeight: "700", color: "var(--danger)", marginBottom: "8px", display: "flex", alignItems: "center", gap: "6px" }}>
+                          <XCircle size={14} />
+                          <span>Missing Requirements ({match.minimum_requirements_missing.length})</span>
+                        </div>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
+                          {match.minimum_requirements_missing.map((item, idx) => (
+                            <span
+                              key={idx}
+                              style={{
+                                fontSize: "12px",
+                                padding: "4px 10px",
+                                borderRadius: "var(--radius-sm)",
+                                background: "var(--danger-surface)",
+                                border: "1px solid var(--danger-border)",
+                                color: "#f87171",
+                              }}
+                            >
+                              {item}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Concerns */}
+                    {match?.concerns && match.concerns.length > 0 && (
+                      <div>
+                        <div style={{ fontSize: "12px", fontWeight: "700", color: "var(--warning)", marginBottom: "8px", display: "flex", alignItems: "center", gap: "6px" }}>
+                          <AlertTriangle size={14} />
+                          <span>Potential Concerns ({match.concerns.length})</span>
+                        </div>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
+                          {match.concerns.map((item, idx) => (
+                            <span
+                              key={idx}
+                              style={{
+                                fontSize: "12px",
+                                padding: "4px 10px",
+                                borderRadius: "var(--radius-sm)",
+                                background: "var(--warning-surface)",
+                                border: "1px solid var(--warning-border)",
+                                color: "#fbbf24",
+                              }}
+                            >
+                              {item}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Tab 2: Metadata */}
+                {activeTab === "info" && (
+                  <div className="glass-card" style={{ padding: "20px", display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px", fontSize: "13px" }}>
+                    <div>
+                      <div style={{ color: "var(--text-muted)", fontSize: "11px", textTransform: "uppercase" }}>Collector Source</div>
+                      <div style={{ color: "var(--text-primary)", fontWeight: "600", marginTop: "2px" }}>{job.source}</div>
+                    </div>
+                    <div>
+                      <div style={{ color: "var(--text-muted)", fontSize: "11px", textTransform: "uppercase" }}>External ID</div>
+                      <div className="mono-text" style={{ color: "var(--text-primary)", marginTop: "2px" }}>{job.external_id}</div>
+                    </div>
+                    <div>
+                      <div style={{ color: "var(--text-muted)", fontSize: "11px", textTransform: "uppercase" }}>Posted Date</div>
+                      <div style={{ color: "var(--text-primary)", marginTop: "2px" }}>
+                        {job.posted_at ? new Date(job.posted_at).toLocaleDateString() : "Not specified"}
+                      </div>
+                    </div>
+                    <div>
+                      <div style={{ color: "var(--text-muted)", fontSize: "11px", textTransform: "uppercase" }}>Direct Job Listing</div>
+                      <a
+                        href={job.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="btn-secondary"
+                        style={{ padding: "6px 12px", fontSize: "12px", marginTop: "6px", display: "inline-flex" }}
+                      >
+                        <span>Open Posting</span>
+                        <ExternalLink size={12} />
+                      </a>
+                    </div>
+                  </div>
+                )}
+
+                {/* Tab 3: Description */}
+                {activeTab === "description" && (
+                  <div
+                    className="glass-card"
+                    style={{
+                      padding: "20px",
+                      maxHeight: "500px",
+                      overflowY: "auto",
+                      fontSize: "13px",
+                      lineHeight: "1.6",
+                      color: "var(--text-primary)",
+                    }}
+                  >
+                    {job.description ? (
+                      <div dangerouslySetInnerHTML={{ __html: job.description }} />
+                    ) : (
+                      <div style={{ color: "var(--text-muted)", textAlign: "center", padding: "40px" }}>
+                        No full description text available in database.
+                      </div>
+                    )}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+
+          {/* Review Decision Actions Footer */}
+          {job && (
+            <div
+              style={{
+                padding: "16px 24px",
+                background: "var(--bg-surface-0)",
+                borderTop: "1px solid var(--border-subtle)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: "12px",
+              }}
+            >
+              <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>
+                Current Status: <strong style={{ color: "var(--text-primary)" }}>{job.review_status}</strong>
+              </div>
+
+              <div style={{ display: "flex", gap: "10px" }}>
+                <button
+                  onClick={() => handleReviewAction("rejected")}
+                  disabled={actionLoading}
+                  className="btn-danger"
+                >
+                  <XCircle size={15} />
+                  <span>Reject Job</span>
+                </button>
+                <button
+                  onClick={() => handleReviewAction("approved")}
+                  disabled={actionLoading}
+                  className="btn-success"
+                >
+                  <CheckCircle size={15} />
+                  <span>Approve Job</span>
+                </button>
+              </div>
+            </div>
           )}
-        </div>
+        </motion.div>
       </div>
-    </div>
+    </AnimatePresence>
   );
 }

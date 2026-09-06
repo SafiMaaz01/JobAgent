@@ -1,4 +1,5 @@
 import json
+import re
 from pathlib import Path
 from datetime import datetime
 
@@ -444,66 +445,73 @@ def run_application(package_path):
         # If Greenhouse embed is already open, continue directly.
         # --------------------------------------------------------------
 
-        if "job-boards.greenhouse.io/embed" not in page.url:
-            print(
-                "Opening application form..."
-            )
+        # Check if form is already visible on the main page
+        has_form_on_page = page.locator("#first_name, #email, #application, form#application_form").count() > 0
 
-            apply_link = page.get_by_role(
-                "link",
-                name="Apply for this role",
-            )
+        if not has_form_on_page and "job-boards.greenhouse.io/embed" not in page.url:
+            print("Opening application form...")
 
-            if apply_link.count() > 0:
-                apply_link.click()
+            apply_clicked = False
+            apply_candidates = [
+                page.get_by_role("link", name=re.compile(r"apply", re.I)),
+                page.get_by_role("button", name=re.compile(r"apply", re.I)),
+                page.locator('a[href*="#app"], a[href*="apply"], #apply_button, button[id*="apply"], [data-action*="apply"]'),
+                page.locator('a:has-text("Apply"), button:has-text("Apply")'),
+            ]
 
-                page.wait_for_timeout(
-                    2500
-                )
+            for candidate in apply_candidates:
+                if candidate.count() > 0:
+                    try:
+                        target = candidate.first
+                        if target.is_visible():
+                            target.click()
+                            page.wait_for_timeout(2500)
+                            apply_clicked = True
+                            print("Clicked Apply button/link.")
+                            break
+                    except Exception:
+                        continue
 
-            else:
-                print(
-                    "WARNING: Apply link not found."
-                )
+            if not apply_clicked:
+                print("WARNING: Apply link not found; scrolling to check for application form...")
+                try:
+                    page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                    page.wait_for_timeout(1500)
+                except Exception:
+                    pass
 
-        # --------------------------------------------------------------
-        # Find Greenhouse application frame.
-        # --------------------------------------------------------------
-
+        # Locate Greenhouse application frame or page
         greenhouse_frame = None
 
         for frame in page.frames:
             if (
-                "job-boards.greenhouse.io/embed/job_app"
-                in frame.url
+                "job-boards.greenhouse.io" in frame.url
+                or "greenhouse.io" in frame.url
+                or "embed/job_app" in frame.url
             ):
-                greenhouse_frame = frame
-                break
+                if frame.locator("#first_name, #email, input[name*='first_name']").count() > 0:
+                    greenhouse_frame = frame
+                    break
 
-        # If application itself is the page, use page.
         if greenhouse_frame is None:
             if (
-                "job-boards.greenhouse.io/embed/job_app"
-                in page.url
+                "greenhouse.io" in page.url
+                or page.locator("#first_name, #email, #application, form").count() > 0
             ):
                 form_page = page
             else:
-                print(
-                    "Could not find Greenhouse application form."
-                )
-
-                input(
-                    "\nPress Enter to close..."
-                )
-
-                browser.close()
-                return
+                page.wait_for_timeout(2000)
+                if page.locator("#first_name, #email, #application, form").count() > 0:
+                    form_page = page
+                else:
+                    print("Could not find Greenhouse application form.")
+                    input("\nPress Enter to close...")
+                    browser.close()
+                    return
         else:
             form_page = greenhouse_frame
 
-        print(
-            "Greenhouse application form found."
-        )
+        print("Greenhouse application form found.")
 
         form_page.wait_for_timeout(1500)
 

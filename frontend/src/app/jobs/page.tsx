@@ -1,13 +1,7 @@
-/**
- * Jobs Directory Page (Server Component).
- * 
- * Parses URL search parameters for filtering (query string, review status,
- * recommendation, minimum match score, pagination), fetches matching records
- * from FastAPI, and renders the interactive table and inspection drawer.
- */
 import { getJobs, JobFilterParams } from "@/lib/api";
 import JobsFilterBar from "@/components/JobsFilterBar";
 import JobsTableWithDrawer from "@/components/JobsTableWithDrawer";
+import { Briefcase, Sparkles, AlertTriangle } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
@@ -16,7 +10,6 @@ interface JobsPageProps {
 }
 
 export default async function JobsPage({ searchParams }: JobsPageProps) {
-
   const resolvedParams = await searchParams;
 
   const page = parseInt(
@@ -67,11 +60,29 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
   return (
     <div>
       {/* Header */}
-      <div className="section-header" style={{ marginBottom: "20px" }}>
+      <div
+        className="glass-card"
+        style={{
+          padding: "24px 28px",
+          marginBottom: "24px",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          flexWrap: "wrap",
+          gap: "16px",
+          background: "linear-gradient(135deg, rgba(19, 27, 46, 0.9) 0%, rgba(26, 36, 61, 0.9) 100%)",
+        }}
+      >
         <div>
-          <h1 className="page-title">Jobs Directory</h1>
-          <p className="page-subtitle">
-            Search, filter, and inspect collected job opportunities and match evaluations
+          <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "6px" }}>
+            <h1 className="display-title">Jobs Intelligence Directory</h1>
+            <span className="badge-semantic badge-ready">
+              <Briefcase size={11} />
+              <span>{jobsData ? `${jobsData.total.toLocaleString()} Total` : "Jobs Catalog"}</span>
+            </span>
+          </div>
+          <p className="caption-text" style={{ fontSize: "13.5px" }}>
+            Search, filter, and inspect collected opportunities, AI compatibility rationale, and application readiness.
           </p>
         </div>
       </div>
@@ -81,9 +92,23 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
 
       {/* Error state */}
       {errorMessage && (
-        <div className="error-banner">
-          <div className="error-title">Failed to load jobs</div>
-          <div>{errorMessage}</div>
+        <div
+          className="glass-card"
+          style={{
+            padding: "18px 24px",
+            marginBottom: "24px",
+            borderColor: "var(--danger-border)",
+            background: "var(--danger-surface)",
+            color: "#fca5a5",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+            <AlertTriangle size={20} color="var(--danger)" />
+            <div>
+              <div style={{ fontWeight: "700" }}>Failed to load jobs</div>
+              <div style={{ fontSize: "12px", marginTop: "2px" }}>{errorMessage}</div>
+            </div>
+          </div>
         </div>
       )}
 

@@ -1,20 +1,29 @@
 "use client";
 
-/**
- * Interactive client component for inspecting application packages and controlling browser automation.
- * 
- * Features:
- * - Candidate profile & resolved answer bank preview
- * - Automation runner panel with Start Autofill trigger
- * - Real-time task polling and terminal log stream
- * - Interactive Ready to Submit gate with human confirmation (Confirm / Cancel)
- */
-import { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import Link from "next/link";
-
 import { ApplicationDetail, TaskStatus } from "@/lib/types";
 import { startAutofill, getTaskStatus, cancelTask, respondToTask, getApplicationDetail } from "@/lib/api";
-import { MatchScoreBadge, RecommendationBadge, ReviewStatusBadge } from "./StatusBadge";
+import ScoreRing from "@/components/ui/ScoreRing";
+import { ReviewStatusBadge } from "./StatusBadge";
+import { useToast } from "@/components/ui/Toast";
+import {
+  ArrowLeft,
+  Building2,
+  MapPin,
+  ExternalLink,
+  Play,
+  Square,
+  CheckCircle2,
+  AlertTriangle,
+  FileText,
+  ShieldAlert,
+  Sparkles,
+  Loader2,
+  User,
+  Check,
+  XCircle,
+} from "lucide-react";
 
 interface ApplicationDetailClientProps {
   initialApp: ApplicationDetail;
@@ -24,25 +33,23 @@ export default function ApplicationDetailClient({ initialApp }: ApplicationDetai
   const [app, setApp] = useState<ApplicationDetail>(initialApp);
   const [taskStatus, setTaskStatus] = useState<TaskStatus | null>(null);
   const [isRunning, setIsRunning] = useState(false);
-  const [actionError, setActionError] = useState<string | null>(null);
   const [showLogs, setShowLogs] = useState(true);
   const [internshipInput, setInternshipInput] = useState("1");
+  const [activeTab, setActiveTab] = useState<"overview" | "answers" | "candidate" | "resume">("overview");
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
+  const { showToast } = useToast();
 
   const candidate = app.candidate || {};
   const personal = (candidate.personal as Record<string, string>) || {};
   const links = (candidate.links as Record<string, string>) || {};
   const education = (candidate.education as Record<string, string>) || {};
-  const experience = (candidate.experience as Record<string, unknown>) || {};
   const preferences = (candidate.preferences as Record<string, string>) || {};
-  const skills = Array.isArray(candidate.skills) ? (candidate.skills as string[]) : [];
   const match = app.match_details;
 
-  const isApplied = app.application_status === "applied";
+  const isApplied = app.application_status === "applied" || app.application_status === "submitted";
   const isApproved = app.review_status === "approved";
   const canRunAutofill = isApproved && !isApplied && !isRunning;
 
-  // Poll task status while active
   const checkTaskStatus = async () => {
     try {
       const status = await getTaskStatus();
@@ -54,23 +61,21 @@ export default function ApplicationDetailClient({ initialApp }: ApplicationDetai
           status.status === "waiting_for_input";
         setIsRunning(active);
 
-        // If completed, refresh application data
         if (status.status === "completed") {
           const freshApp = await getApplicationDetail(app.job_id);
           setApp(freshApp);
+          showToast("Autofill Completed", "Application package processed", "success");
         }
       } else if (status.task === "autofill" && isRunning) {
-        // Task was for another job or ended
         setTaskStatus(status);
         setIsRunning(false);
       }
     } catch {
-      // Ignore transient polling errors
+      // Ignore polling errors
     }
   };
 
   useEffect(() => {
-    // Initial check on mount
     checkTaskStatus();
   }, []);
 
@@ -82,45 +87,49 @@ export default function ApplicationDetailClient({ initialApp }: ApplicationDetai
       pollingRef.current = null;
     }
     return () => {
-      if (pollingRef.current) {
-        clearInterval(pollingRef.current);
-      }
+      if (pollingRef.current) clearInterval(pollingRef.current);
     };
   }, [isRunning]);
 
   const handleStartAutofill = async () => {
-    setActionError(null);
     try {
       const res = await startAutofill(app.job_id);
       setTaskStatus(res);
       setIsRunning(true);
+      showToast("Autofill Runner Started", res.message, "info");
     } catch (err: unknown) {
-      setActionError(
-        err instanceof Error ? err.message : "Failed to launch browser automation"
+      showToast(
+        "Automation Error",
+        err instanceof Error ? err.message : "Failed to launch runner",
+        "error"
       );
     }
   };
 
   const handleCancelAutomation = async () => {
-    setActionError(null);
     try {
       await cancelTask();
       await checkTaskStatus();
+      showToast("Task Cancelled", "Runner stopped", "info");
     } catch (err: unknown) {
-      setActionError(
-        err instanceof Error ? err.message : "Failed to cancel automation"
+      showToast(
+        "Cancel Error",
+        err instanceof Error ? err.message : "Failed to cancel automation",
+        "error"
       );
     }
   };
 
   const handleSendInput = async () => {
-    setActionError(null);
     try {
       await respondToTask("input", internshipInput);
       await checkTaskStatus();
+      showToast("Input Sent", "Selection submitted to runner", "success");
     } catch (err: unknown) {
-      setActionError(
-        err instanceof Error ? err.message : "Failed to send input"
+      showToast(
+        "Input Error",
+        err instanceof Error ? err.message : "Failed to send input",
+        "error"
       );
     }
   };
@@ -131,73 +140,63 @@ export default function ApplicationDetailClient({ initialApp }: ApplicationDetai
   const isTaskActiveForThisJob = taskStatus?.details?.job_id === app.job_id && taskStatus?.task === "autofill";
 
   return (
-    <div style={{ maxWidth: "1100px" }}>
-      {/* Back Link */}
-      <div style={{ marginBottom: "16px" }}>
-        <Link
-          href="/applications"
-          style={{
-            fontSize: "13px",
-            color: "var(--brand-light)",
-            display: "inline-flex",
-            alignItems: "center",
-            gap: "6px",
-            fontWeight: "500",
-          }}
-        >
-          ← Back to Applications Hub
+    <div style={{ maxWidth: "1160px", margin: "0 auto" }}>
+      {/* Navigation Link */}
+      <div style={{ marginBottom: "18px" }}>
+        <Link href="/applications" className="btn-secondary" style={{ padding: "6px 12px", fontSize: "12px" }}>
+          <ArrowLeft size={14} />
+          <span>Back to Applications Control Hub</span>
         </Link>
       </div>
 
-      {/* Header Banner */}
+      {/* Hero Control Room Header */}
       <div
+        className="glass-card"
         style={{
-          background: "var(--bg-surface)",
-          border: "1px solid var(--border-color)",
-          borderRadius: "var(--radius-lg)",
-          padding: "24px",
-          marginBottom: "24px",
+          padding: "24px 28px",
+          marginBottom: "28px",
           display: "flex",
           justifyContent: "space-between",
           alignItems: "flex-start",
           flexWrap: "wrap",
           gap: "16px",
+          background: "linear-gradient(135deg, rgba(19, 27, 46, 0.95) 0%, rgba(26, 36, 61, 0.95) 100%)",
         }}
       >
-        <div>
-          <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "8px" }}>
-            <span style={{ fontSize: "11px", color: "var(--text-muted)", fontFamily: "monospace" }}>
-              Job ID #{app.job_id}
-            </span>
-            {app.review_status && <ReviewStatusBadge status={app.review_status} />}
-            <span
-              className="badge"
-              style={{
-                backgroundColor: isApplied ? "var(--purple-surface)" : "var(--success-surface)",
-                color: isApplied ? "var(--purple)" : "var(--success)",
-                border: isApplied ? "1px solid rgba(139, 92, 246, 0.3)" : "1px solid rgba(16, 185, 129, 0.3)",
-              }}
-            >
-              {isApplied ? "Submitted / Applied" : "Package Ready for Review"}
-            </span>
-          </div>
-
-          <h1 style={{ fontSize: "22px", fontWeight: "700", color: "var(--text-primary)" }}>
-            {app.role}
-          </h1>
-          <div style={{ fontSize: "14px", color: "var(--text-secondary)", marginTop: "4px" }}>
-            <strong style={{ color: "var(--text-primary)" }}>{app.company}</strong> •{" "}
-            {app.location || "Remote / Not specified"}
-          </div>
-
-          {app.created_at && (
-            <div style={{ fontSize: "12px", color: "var(--text-muted)", marginTop: "8px" }}>
-              Package generated: {app.created_at.split("T")[0]}
+        <div style={{ display: "flex", alignItems: "flex-start", gap: "16px" }}>
+          <ScoreRing score={app.match_score} size={54} strokeWidth={4.5} />
+          <div>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "6px" }}>
+              <span className="mono-text" style={{ fontSize: "11px", color: "var(--text-muted)" }}>
+                JOB #{app.job_id}
+              </span>
+              {app.review_status && <ReviewStatusBadge status={app.review_status} />}
+              <span
+                className="badge-semantic"
+                style={{
+                  background: isApplied ? "var(--success-surface)" : "var(--accent-surface)",
+                  color: isApplied ? "var(--success)" : "var(--accent-light)",
+                  border: isApplied ? "1px solid var(--success-border)" : "1px solid var(--border-glow)",
+                }}
+              >
+                {isApplied ? "Submitted Application" : "Package Ready for Review"}
+              </span>
             </div>
-          )}
+
+            <h1 style={{ fontSize: "22px", fontWeight: "800", color: "var(--text-primary)" }}>
+              {app.role}
+            </h1>
+            <div style={{ display: "flex", alignItems: "center", gap: "10px", marginTop: "4px", fontSize: "13.5px", color: "var(--text-secondary)" }}>
+              <span style={{ fontWeight: "700", color: "var(--text-primary)" }}>{app.company}</span>
+              <span>•</span>
+              <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+                <MapPin size={13} color="var(--text-muted)" />
+                <span>{app.location || "Remote / Flexible"}</span>
+              </div>
+            </div>
+          </div>
         </div>
 
-        {/* Action Controls */}
         <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "10px" }}>
           <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
             {app.job_url && (
@@ -205,594 +204,258 @@ export default function ApplicationDetailClient({ initialApp }: ApplicationDetai
                 href={app.job_url}
                 target="_blank"
                 rel="noopener noreferrer"
-                style={{
-                  background: "transparent",
-                  border: "1px solid var(--border-color)",
-                  color: "var(--text-primary)",
-                  borderRadius: "var(--radius-sm)",
-                  padding: "8px 14px",
-                  fontSize: "13px",
-                  fontWeight: "500",
-                  textDecoration: "none",
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: "6px",
-                }}
+                className="btn-secondary"
+                style={{ padding: "8px 14px", fontSize: "12.5px" }}
               >
-                Open Job Board ↗
+                <span>External Listing</span>
+                <ExternalLink size={13} />
               </a>
             )}
 
             {canRunAutofill && (
-              <button
-                onClick={handleStartAutofill}
-                style={{
-                  background: "var(--brand)",
-                  border: "none",
-                  color: "#ffffff",
-                  borderRadius: "var(--radius-sm)",
-                  padding: "8px 18px",
-                  fontSize: "13px",
-                  fontWeight: "600",
-                  cursor: "pointer",
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: "6px",
-                  boxShadow: "0 2px 8px rgba(59, 130, 246, 0.3)",
-                }}
-              >
-                ▶ Run Autofill
+              <button onClick={handleStartAutofill} className="btn-primary">
+                <Play size={15} />
+                <span>Run Playwright Autofill</span>
               </button>
             )}
 
             {isApplied && (
-              <span
-                style={{
-                  background: "var(--purple-surface)",
-                  color: "var(--purple)",
-                  padding: "8px 14px",
-                  borderRadius: "var(--radius-sm)",
-                  fontSize: "13px",
-                  fontWeight: "600",
-                  border: "1px solid rgba(139, 92, 246, 0.4)",
-                }}
-              >
-                ✓ Application Applied
+              <span className="badge-semantic badge-submitted" style={{ padding: "6px 12px", fontSize: "12px" }}>
+                <CheckCircle2 size={14} />
+                <span>Application Submitted</span>
               </span>
             )}
           </div>
-
-          {!isApproved && (
-            <span style={{ fontSize: "11px", color: "var(--text-muted)" }}>
-              Job must be approved before running automation
-            </span>
-          )}
         </div>
       </div>
 
-      {/* Action Error Banner */}
-      {actionError && (
-        <div className="error-banner" style={{ marginBottom: "20px" }}>
-          <div className="error-title">Automation Error</div>
-          <div>{actionError}</div>
-        </div>
-      )}
-
-      {/* Live Automation Runner Card */}
-      {isTaskActiveForThisJob && taskStatus && (
+      {/* Authoritative Human Confirmation Gate Banner (Directive #14) */}
+      {isWaitingForConfirmation && isTaskActiveForThisJob && (
         <div
+          className="glass-card"
           style={{
-            background: "var(--bg-surface)",
-            border: isWaitingForConfirmation
-              ? "1px solid rgba(245, 158, 11, 0.6)"
-              : "1px solid var(--brand)",
-            borderRadius: "var(--radius-lg)",
-            padding: "20px",
-            marginBottom: "24px",
-            boxShadow: isWaitingForConfirmation
-              ? "0 4px 20px rgba(245, 158, 11, 0.15)"
-              : "0 4px 20px rgba(59, 130, 246, 0.1)",
+            padding: "24px",
+            marginBottom: "28px",
+            borderColor: "var(--warning-border)",
+            background: "linear-gradient(135deg, rgba(245, 158, 11, 0.15) 0%, rgba(19, 27, 46, 0.95) 100%)",
+            boxShadow: "0 0 30px rgba(245, 158, 11, 0.2)",
           }}
         >
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-              <span
-                style={{
-                  display: "inline-block",
-                  width: "10px",
-                  height: "10px",
-                  borderRadius: "50%",
-                  backgroundColor:
-                    taskStatus.status === "completed"
-                      ? "var(--success)"
-                      : isWaitingForConfirmation
-                      ? "var(--warning)"
-                      : "var(--brand)",
-                  animation: isRunning ? "pulse 1.5s infinite" : "none",
-                }}
-              />
-              <span style={{ fontWeight: "700", fontSize: "15px", color: "var(--text-primary)" }}>
-                Browser Automation:{" "}
-                {isWaitingForConfirmation
-                  ? "Ready to Submit (Human Gate)"
-                  : isWaitingForInput
-                  ? "Input Required"
-                  : taskStatus.status === "completed"
-                  ? "Completed"
-                  : taskStatus.status === "cancelled"
-                  ? "Cancelled"
-                  : "Running"}
-              </span>
-            </div>
-
-            <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-              <span style={{ fontSize: "12px", color: "var(--text-muted)", fontFamily: "monospace" }}>
-                Stage: {currentDetails?.stage || "active"} ({taskStatus.progress}%)
-              </span>
-              {(isRunning || isWaitingForConfirmation) && (
-                <button
-                  onClick={handleCancelAutomation}
-                  style={{
-                    background: "var(--danger-surface)",
-                    border: "1px solid rgba(239, 68, 68, 0.3)",
-                    color: "var(--danger)",
-                    borderRadius: "var(--radius-sm)",
-                    padding: "4px 10px",
-                    fontSize: "12px",
-                    fontWeight: "600",
-                    cursor: "pointer",
-                  }}
-                >
-                  Cancel & Close Browser
-                </button>
-              )}
-            </div>
-          </div>
-
-          {/* Progress Bar */}
-          <div
-            style={{
-              width: "100%",
-              height: "6px",
-              backgroundColor: "var(--border-color)",
-              borderRadius: "3px",
-              overflow: "hidden",
-              marginBottom: "12px",
-            }}
-          >
+          <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "12px" }}>
             <div
               style={{
-                width: `${taskStatus.progress}%`,
-                height: "100%",
-                backgroundColor: isWaitingForConfirmation ? "var(--warning)" : "var(--brand)",
-                transition: "width 0.4s ease",
-              }}
-            />
-          </div>
-
-          {/* Status Message */}
-          <div style={{ fontSize: "13px", color: "var(--text-secondary)", marginBottom: "12px" }}>
-            {taskStatus.message}
-          </div>
-
-          {/* Human Confirmation Gate Banner */}
-          {isWaitingForConfirmation && (
-            <div
-              style={{
-                background: "rgba(245, 158, 11, 0.1)",
-                border: "1px solid rgba(245, 158, 11, 0.4)",
+                width: "40px",
+                height: "40px",
                 borderRadius: "var(--radius-md)",
-                padding: "16px",
-                marginBottom: "16px",
-              }}
-            >
-              <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "8px" }}>
-                <span style={{ fontSize: "18px" }}>⚠️</span>
-                <span style={{ fontWeight: "700", color: "#fcd34d", fontSize: "14px" }}>
-                  Authoritative Human Submission Confirmation Gate
-                </span>
-              </div>
-              <p style={{ fontSize: "13px", color: "var(--text-secondary)", margin: "0 0 12px 0", lineHeight: "1.5" }}>
-                The application form was autofilled and verified in the Chromium browser window.
-                The automation is paused at the <strong>READY TO SUBMIT</strong> gate.
-                The application has <strong>NOT</strong> been sent to the employer.
-              </p>
-              <div style={{ display: "flex", gap: "12px", alignItems: "center", flexWrap: "wrap" }}>
-                <button
-                  onClick={handleCancelAutomation}
-                  style={{
-                    background: "var(--danger-surface)",
-                    border: "1px solid rgba(239, 68, 68, 0.4)",
-                    color: "var(--danger)",
-                    borderRadius: "var(--radius-sm)",
-                    padding: "6px 14px",
-                    fontSize: "12px",
-                    fontWeight: "600",
-                    cursor: "pointer",
-                  }}
-                >
-                  Cancel Submission & Close Browser
-                </button>
-                <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>
-                  Review the open browser window. Final confirmation can be completed in console or canceled above.
-                </span>
-              </div>
-            </div>
-          )}
-
-          {/* Internship Availability Input Banner */}
-          {isWaitingForInput && (
-            <div
-              style={{
-                background: "rgba(59, 130, 246, 0.1)",
-                border: "1px solid rgba(59, 130, 246, 0.4)",
-                borderRadius: "var(--radius-md)",
-                padding: "14px",
-                marginBottom: "16px",
-              }}
-            >
-              <div style={{ fontWeight: "600", color: "var(--brand-light)", marginBottom: "8px", fontSize: "13px" }}>
-                Interactive Input Required: Internship Availability Cohort
-              </div>
-              <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
-                <select
-                  value={internshipInput}
-                  onChange={(e) => setInternshipInput(e.target.value)}
-                  style={{
-                    background: "var(--bg-input)",
-                    border: "1px solid var(--border-color)",
-                    color: "var(--text-primary)",
-                    borderRadius: "var(--radius-sm)",
-                    padding: "6px 10px",
-                    fontSize: "12px",
-                  }}
-                >
-                  <option value="1">1. Summer (May - August)</option>
-                  <option value="2">2. Fall (September - December)</option>
-                  <option value="3">3. Winter/Spring (January - April)</option>
-                  <option value="4">4. Full-Year Co-op</option>
-                </select>
-                <button
-                  onClick={handleSendInput}
-                  style={{
-                    background: "var(--brand)",
-                    border: "none",
-                    color: "#fff",
-                    borderRadius: "var(--radius-sm)",
-                    padding: "6px 14px",
-                    fontSize: "12px",
-                    fontWeight: "600",
-                    cursor: "pointer",
-                  }}
-                >
-                  Submit Selection
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* Verification Status Badge */}
-          {currentDetails?.verification_passed && (
-            <div
-              style={{
-                background: "var(--success-surface)",
-                border: "1px solid rgba(16, 185, 129, 0.3)",
-                borderRadius: "var(--radius-md)",
-                padding: "10px 14px",
-                marginBottom: "12px",
+                background: "var(--warning-surface)",
+                border: "1px solid var(--warning-border)",
                 display: "flex",
                 alignItems: "center",
-                gap: "8px",
-                fontSize: "12px",
-                color: "var(--success)",
+                justifyContent: "center",
+                color: "var(--warning)",
               }}
             >
-              <span>✓</span>
-              <span>
-                <strong>Browser-State Verification Passed:</strong> All deterministic profile fields and required questions verified.
-              </span>
+              <ShieldAlert size={22} />
             </div>
-          )}
+            <div>
+              <div style={{ fontWeight: "800", fontSize: "16px", color: "var(--warning)" }}>
+                MANDATORY HUMAN SUBMISSION CONFIRMATION GATE
+              </div>
+              <div style={{ fontSize: "12.5px", color: "var(--text-secondary)", marginTop: "2px" }}>
+                Form autofill & verification checks completed. Review required before sending application.
+              </div>
+            </div>
+          </div>
 
-          {/* Terminal Logs Collapsible */}
-          <div>
-            <button
-              onClick={() => setShowLogs(!showLogs)}
-              style={{
-                background: "transparent",
-                border: "none",
-                color: "var(--text-muted)",
-                fontSize: "11px",
-                fontWeight: "600",
-                cursor: "pointer",
-                padding: "4px 0",
-                display: "flex",
-                alignItems: "center",
-                gap: "4px",
-              }}
-            >
-              {showLogs ? "▼ Hide Execution Logs" : "▶ Show Live Execution Logs"}
+          <p style={{ fontSize: "13.5px", color: "var(--text-primary)", lineHeight: "1.6", marginBottom: "16px" }}>
+            The Chromium browser has populated all required form fields, attached your resume PDF, and verified questionnaire inputs. The system is currently holding at the <strong>READY TO SUBMIT</strong> safety gate. No submission has occurred.
+          </p>
+
+          <div style={{ display: "flex", alignItems: "center", gap: "12px", flexWrap: "wrap" }}>
+            <button onClick={handleCancelAutomation} className="btn-danger">
+              <Square size={15} />
+              <span>Cancel & Close Browser</span>
             </button>
+            <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>
+              To complete final submission, inspect the open Chromium browser window and confirm human submission.
+            </span>
+          </div>
+        </div>
+      )}
 
-            {showLogs && currentDetails?.recent_logs && (
-              <div
-                style={{
-                  marginTop: "8px",
-                  background: "#0d1117",
-                  border: "1px solid rgba(255, 255, 255, 0.1)",
-                  borderRadius: "var(--radius-sm)",
-                  padding: "10px 12px",
-                  fontFamily: "monospace",
-                  fontSize: "11px",
-                  color: "#c9d1d9",
-                  maxHeight: "180px",
-                  overflowY: "auto",
-                  lineHeight: "1.4",
-                }}
-              >
-                {currentDetails.recent_logs.map((logLine, idx) => (
-                  <div key={idx} style={{ whiteSpace: "pre-wrap" }}>
-                    {logLine}
+      {/* Control Room Navigation Tabs */}
+      <div
+        style={{
+          display: "flex",
+          gap: "12px",
+          marginBottom: "24px",
+          borderBottom: "1px solid var(--border-subtle)",
+          paddingBottom: "12px",
+        }}
+      >
+        {[
+          { id: "overview", label: "Overview & Runner", icon: Play },
+          { id: "answers", label: "Resolved QA Answers", icon: FileText },
+          { id: "candidate", label: "Candidate Profile", icon: User },
+          { id: "resume", label: "Resume & Verification", icon: CheckCircle2 },
+        ].map((tab) => {
+          const IconComp = tab.icon;
+          const isActive = activeTab === tab.id;
+          return (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id as typeof activeTab)}
+              className={isActive ? "btn-primary" : "btn-secondary"}
+              style={{ padding: "8px 16px", fontSize: "12.5px" }}
+            >
+              <IconComp size={14} />
+              <span>{tab.label}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Tab 1: Overview & Runner */}
+      {activeTab === "overview" && (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: "24px" }}>
+          {/* Automation Runner State Card */}
+          <div className="glass-card" style={{ padding: "24px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                <Sparkles size={18} color="var(--accent-light)" />
+                <h3 className="section-title">Playwright Browser Automation Controls</h3>
+              </div>
+              <span className="mono-text" style={{ fontSize: "11px", color: "var(--text-muted)" }}>
+                Status: {taskStatus ? taskStatus.status.toUpperCase() : "IDLE"}
+              </span>
+            </div>
+
+            {isTaskActiveForThisJob && taskStatus ? (
+              <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+                <div style={{ fontSize: "13px", color: "var(--text-primary)" }}>
+                  {taskStatus.message}
+                </div>
+                <div style={{ width: "100%", height: "8px", background: "var(--bg-surface-0)", borderRadius: "4px", overflow: "hidden" }}>
+                  <div style={{ width: `${taskStatus.progress}%`, height: "100%", background: "var(--accent-primary)", transition: "width 0.4s ease" }} />
+                </div>
+
+                {isWaitingForInput && (
+                  <div style={{ background: "var(--accent-surface)", border: "1px solid var(--border-glow)", padding: "14px", borderRadius: "var(--radius-md)", display: "flex", gap: "12px", alignItems: "center" }}>
+                    <select
+                      className="select-field"
+                      value={internshipInput}
+                      onChange={(e) => setInternshipInput(e.target.value)}
+                    >
+                      <option value="1">1. Summer (May - August)</option>
+                      <option value="2">2. Fall (September - December)</option>
+                      <option value="3">3. Winter/Spring (January - April)</option>
+                      <option value="4">4. Full-Year Co-op</option>
+                    </select>
+                    <button onClick={handleSendInput} className="btn-primary" style={{ padding: "8px 14px", fontSize: "12px" }}>
+                      Submit Cohort Input
+                    </button>
                   </div>
-                ))}
+                )}
+
+                {/* Execution Logs */}
+                <div>
+                  <button onClick={() => setShowLogs(!showLogs)} style={{ background: "none", border: "none", color: "var(--text-muted)", fontSize: "12px", cursor: "pointer" }}>
+                    {showLogs ? "▼ Hide Execution Terminal Logs" : "▶ Show Execution Terminal Logs"}
+                  </button>
+                  {showLogs && currentDetails?.recent_logs && (
+                    <div className="mono-text" style={{ marginTop: "10px", background: "#0d1117", border: "1px solid var(--border-subtle)", borderRadius: "var(--radius-md)", padding: "12px", fontSize: "11px", color: "#c9d1d9", maxHeight: "200px", overflowY: "auto" }}>
+                      {currentDetails.recent_logs.map((log, idx) => (
+                        <div key={idx}>{log}</div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div style={{ fontSize: "13px", color: "var(--text-secondary)", lineHeight: "1.6" }}>
+                No active automation runner process currently attached to this job package. Click <strong>Run Playwright Autofill</strong> above to execute local browser automation.
               </div>
             )}
           </div>
         </div>
       )}
 
-      <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: "24px" }}>
-        {/* Left Column: Application Details */}
-        <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
-          {/* Section: Candidate Profile */}
-          <div
-            style={{
-              background: "var(--bg-surface)",
-              border: "1px solid var(--border-color)",
-              borderRadius: "var(--radius-lg)",
-              padding: "20px",
-            }}
-          >
-            <h2 style={{ fontSize: "16px", fontWeight: "600", marginBottom: "16px", color: "var(--text-primary)" }}>
-              Candidate Profile for this Application
-            </h2>
-
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" }}>
-              <div>
-                <span style={{ fontSize: "11px", color: "var(--text-muted)", textTransform: "uppercase" }}>
-                  Full Name
-                </span>
-                <div style={{ fontSize: "14px", fontWeight: "500", color: "var(--text-primary)" }}>
-                  {personal.full_name || "—"}
-                </div>
-              </div>
-
-              <div>
-                <span style={{ fontSize: "11px", color: "var(--text-muted)", textTransform: "uppercase" }}>
-                  Email Address
-                </span>
-                <div style={{ fontSize: "14px", fontWeight: "500", color: "var(--text-primary)" }}>
-                  {personal.email || "—"}
-                </div>
-              </div>
-
-              <div>
-                <span style={{ fontSize: "11px", color: "var(--text-muted)", textTransform: "uppercase" }}>
-                  Phone Number
-                </span>
-                <div style={{ fontSize: "14px", fontWeight: "500", color: "var(--text-primary)" }}>
-                  {personal.phone || "—"}
-                </div>
-              </div>
-
-              <div>
-                <span style={{ fontSize: "11px", color: "var(--text-muted)", textTransform: "uppercase" }}>
-                  Location
-                </span>
-                <div style={{ fontSize: "14px", fontWeight: "500", color: "var(--text-primary)" }}>
-                  {personal.location || "—"}
-                </div>
-              </div>
-
-              {education.institution && (
-                <div>
-                  <span style={{ fontSize: "11px", color: "var(--text-muted)", textTransform: "uppercase" }}>
-                    Education
-                  </span>
-                  <div style={{ fontSize: "13px", color: "var(--text-primary)" }}>
-                    {education.institution} ({education.degree || "Degree"})
-                  </div>
-                </div>
-              )}
-
-              {preferences.legal_authorization && (
-                <div>
-                  <span style={{ fontSize: "11px", color: "var(--text-muted)", textTransform: "uppercase" }}>
-                    Work Authorization
-                  </span>
-                  <div style={{ fontSize: "13px", color: "var(--text-primary)" }}>
-                    {preferences.legal_authorization}
-                  </div>
-                </div>
-              )}
+      {/* Tab 2: Resolved QA Answers */}
+      {activeTab === "answers" && (
+        <div className="glass-card" style={{ padding: "24px" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" }}>
+            <div>
+              <h3 className="section-title">Resolved Application QA Answers</h3>
+              <p className="caption-text">Exact question & candidate answer key-value pairs used for form completion</p>
             </div>
-
-            {/* Candidate Online Profiles */}
-            <div style={{ marginTop: "16px", paddingTop: "12px", borderTop: "1px solid var(--border-color)" }}>
-              <span style={{ fontSize: "11px", color: "var(--text-muted)", textTransform: "uppercase" }}>
-                Candidate Web Profiles
-              </span>
-              <div style={{ display: "flex", gap: "16px", marginTop: "6px", flexWrap: "wrap" }}>
-                {links.linkedin && (
-                  <a
-                    href={links.linkedin}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    style={{ fontSize: "12px", color: "var(--brand-light)" }}
-                  >
-                    LinkedIn ↗
-                  </a>
-                )}
-                {links.github && (
-                  <a
-                    href={links.github}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    style={{ fontSize: "12px", color: "var(--brand-light)" }}
-                  >
-                    GitHub ↗
-                  </a>
-                )}
-                {links.portfolio && (
-                  <a
-                    href={links.portfolio}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    style={{ fontSize: "12px", color: "var(--brand-light)" }}
-                  >
-                    Portfolio ↗
-                  </a>
-                )}
-              </div>
-            </div>
+            <span className="mono-text" style={{ fontSize: "12px", color: "var(--text-muted)" }}>
+              {Object.keys(app.resolved_answers || {}).length} Mapped Pairs
+            </span>
           </div>
 
-          {/* Section: Saved Questionnaire Answers */}
-          <div
-            style={{
-              background: "var(--bg-surface)",
-              border: "1px solid var(--border-color)",
-              borderRadius: "var(--radius-lg)",
-              padding: "20px",
-            }}
-          >
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
-              <h2 style={{ fontSize: "16px", fontWeight: "600", color: "var(--text-primary)" }}>
-                Saved Questionnaire Responses
-              </h2>
-              <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>
-                {Object.keys(app.resolved_answers || {}).length} questions mapped
-              </span>
+          {Object.keys(app.resolved_answers || {}).length === 0 ? (
+            <div style={{ color: "var(--text-muted)", textAlign: "center", padding: "40px" }}>
+              No custom questionnaire answers stored in this package.
             </div>
-
-            {Object.keys(app.resolved_answers || {}).length === 0 ? (
-              <div style={{ fontSize: "13px", color: "var(--text-muted)" }}>
-                No custom application questions recorded in package.
-              </div>
-            ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-                {Object.entries(app.resolved_answers).map(([questionKey, answerValue], idx) => (
-                  <div
-                    key={idx}
-                    style={{
-                      background: "var(--bg-subtle)",
-                      borderRadius: "var(--radius-md)",
-                      padding: "12px 16px",
-                      border: "1px solid var(--border-color)",
-                    }}
-                  >
-                    <div style={{ fontSize: "12px", fontWeight: "600", color: "var(--text-secondary)", marginBottom: "4px" }}>
-                      {questionKey.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}
-                    </div>
-                    <div style={{ fontSize: "13px", color: "var(--text-primary)", fontWeight: "500" }}>
-                      {typeof answerValue === "object" ? JSON.stringify(answerValue) : String(answerValue)}
-                    </div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+              {Object.entries(app.resolved_answers).map(([key, val], idx) => (
+                <div key={idx} style={{ background: "var(--bg-surface-0)", border: "1px solid var(--border-subtle)", borderRadius: "var(--radius-md)", padding: "14px 18px" }}>
+                  <div style={{ fontSize: "12px", fontWeight: "700", color: "var(--accent-light)", marginBottom: "4px" }}>
+                    {key.replace(/_/g, " ").toUpperCase()}
                   </div>
-                ))}
-              </div>
-            )}
+                  <div style={{ fontSize: "13.5px", color: "var(--text-primary)", fontWeight: "500" }}>
+                    {typeof val === "object" ? JSON.stringify(val) : String(val)}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Tab 3: Candidate Profile */}
+      {activeTab === "candidate" && (
+        <div className="glass-card" style={{ padding: "24px" }}>
+          <h3 className="section-title" style={{ marginBottom: "18px" }}>Candidate Profile Snapshot</h3>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "20px", fontSize: "13px" }}>
+            <div>
+              <div style={{ color: "var(--text-muted)", fontSize: "11px", textTransform: "uppercase" }}>Full Name</div>
+              <div style={{ color: "var(--text-primary)", fontWeight: "700", marginTop: "2px" }}>{personal.full_name || "—"}</div>
+            </div>
+            <div>
+              <div style={{ color: "var(--text-muted)", fontSize: "11px", textTransform: "uppercase" }}>Email Address</div>
+              <div style={{ color: "var(--text-primary)", fontWeight: "700", marginTop: "2px" }}>{personal.email || "—"}</div>
+            </div>
+            <div>
+              <div style={{ color: "var(--text-muted)", fontSize: "11px", textTransform: "uppercase" }}>Phone</div>
+              <div style={{ color: "var(--text-primary)", marginTop: "2px" }}>{personal.phone || "—"}</div>
+            </div>
+            <div>
+              <div style={{ color: "var(--text-muted)", fontSize: "11px", textTransform: "uppercase" }}>Location</div>
+              <div style={{ color: "var(--text-primary)", marginTop: "2px" }}>{personal.location || "—"}</div>
+            </div>
           </div>
         </div>
+      )}
 
-        {/* Right Column: Package Metadata & Match Assessment */}
-        <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
-          {/* Resume Verification Card */}
-          <div
-            style={{
-              background: "var(--bg-surface)",
-              border: "1px solid var(--border-color)",
-              borderRadius: "var(--radius-lg)",
-              padding: "20px",
-            }}
-          >
-            <h3 style={{ fontSize: "14px", fontWeight: "600", color: "var(--text-primary)", marginBottom: "12px" }}>
-              Attached Resume Document
-            </h3>
-
-            <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "8px" }}>
-              <span style={{ fontSize: "20px" }}>📄</span>
-              <div>
-                <div style={{ fontSize: "13px", fontWeight: "600", color: "var(--text-primary)" }}>
-                  {app.resume_path || "data/resume.pdf"}
-                </div>
-                <div style={{ fontSize: "11px", color: app.resume_exists ? "var(--success)" : "var(--danger)" }}>
-                  {app.resume_exists ? "✓ File verified on filesystem" : "✕ File not found"}
-                </div>
+      {/* Tab 4: Resume & Verification */}
+      {activeTab === "resume" && (
+        <div className="glass-card" style={{ padding: "24px" }}>
+          <h3 className="section-title" style={{ marginBottom: "16px" }}>Resume PDF & Package Verification</h3>
+          <div style={{ display: "flex", alignItems: "center", gap: "14px", padding: "16px", background: "var(--bg-surface-0)", border: "1px solid var(--border-subtle)", borderRadius: "var(--radius-md)" }}>
+            <FileText size={28} color="var(--accent-light)" />
+            <div>
+              <div className="mono-text" style={{ fontSize: "13px", fontWeight: "700", color: "var(--text-primary)" }}>
+                {app.resume_path || "data/resume.pdf"}
+              </div>
+              <div style={{ fontSize: "12px", color: app.resume_exists ? "var(--success)" : "var(--danger)", marginTop: "2px" }}>
+                {app.resume_exists ? "✓ Local PDF file verified" : "✕ File missing on disk"}
               </div>
             </div>
-          </div>
-
-          {/* Match Assessment */}
-          <div
-            style={{
-              background: "var(--bg-surface)",
-              border: "1px solid var(--border-color)",
-              borderRadius: "var(--radius-lg)",
-              padding: "20px",
-            }}
-          >
-            <h3 style={{ fontSize: "14px", fontWeight: "600", color: "var(--text-primary)", marginBottom: "12px" }}>
-              AI Match Assessment
-            </h3>
-
-            <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "16px" }}>
-              <MatchScoreBadge score={app.match_score} />
-              <RecommendationBadge recommendation={app.recommendation} />
-            </div>
-
-            {match && (
-              <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-                {match.reason && (
-                  <div>
-                    <span style={{ fontSize: "11px", color: "var(--text-muted)", textTransform: "uppercase" }}>
-                      Reasoning
-                    </span>
-                    <p style={{ fontSize: "12px", color: "var(--text-secondary)", marginTop: "2px", lineHeight: "1.5" }}>
-                      {match.reason}
-                    </p>
-                  </div>
-                )}
-
-                {match.strong_matches && match.strong_matches.length > 0 && (
-                  <div>
-                    <span style={{ fontSize: "11px", color: "var(--success)", textTransform: "uppercase", fontWeight: "600" }}>
-                      Strengths ({match.strong_matches.length})
-                    </span>
-                    <ul style={{ margin: "4px 0 0 16px", padding: 0, fontSize: "12px", color: "var(--text-secondary)" }}>
-                      {match.strong_matches.map((item, i) => (
-                        <li key={i}>{item}</li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-
-                {match.minimum_requirements_missing && match.minimum_requirements_missing.length > 0 && (
-                  <div>
-                    <span style={{ fontSize: "11px", color: "var(--danger)", textTransform: "uppercase", fontWeight: "600" }}>
-                      Missing Requirements
-                    </span>
-                    <ul style={{ margin: "4px 0 0 16px", padding: 0, fontSize: "12px", color: "var(--text-secondary)" }}>
-                      {match.minimum_requirements_missing.map((item, i) => (
-                        <li key={i}>{item}</li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-              </div>
-            )}
           </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

@@ -1,16 +1,10 @@
 "use client";
 
-/**
- * Filter toolbar for the Jobs Directory.
- * 
- * Synchronizes search query, status dropdown, recommendation filter, and minimum score
- * directly to the URL query string so filtered views are bookmarkable and shareable.
- */
+import React, { useCallback, useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useTransition } from "react";
+import { Search, RotateCcw, Loader2, Sparkles, Filter } from "lucide-react";
 
 export default function JobsFilterBar() {
-
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -25,7 +19,6 @@ export default function JobsFilterBar() {
   const updateFilters = useCallback(
     (updates: Record<string, string | null>) => {
       const params = new URLSearchParams(searchParams.toString());
-      // Reset page to 1 on filter changes
       params.set("page", "1");
 
       Object.entries(updates).forEach(([key, value]) => {
@@ -57,36 +50,53 @@ export default function JobsFilterBar() {
   };
 
   return (
-    <div className="filters-toolbar">
-      <div className="filters-row">
-        {/* Search input */}
-        <div className="search-input-wrapper">
-          <span className="search-icon">🔍</span>
+    <div
+      className="glass-card"
+      style={{
+        padding: "16px 20px",
+        marginBottom: "24px",
+        display: "flex",
+        flexDirection: "column",
+        gap: "14px",
+      }}
+    >
+      <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "12px" }}>
+        {/* Search Input */}
+        <div style={{ position: "relative", flex: 1, minWidth: "260px" }}>
+          <Search
+            size={16}
+            color="var(--text-muted)"
+            style={{ position: "absolute", left: "12px", top: "50%", transform: "translateY(-50%)" }}
+          />
           <input
             type="text"
-            className="search-input"
-            placeholder="Search company or job title..."
+            className="input-field"
+            placeholder="Search company, job title, or keywords..."
+            style={{ paddingLeft: "36px" }}
             defaultValue={currentSearch}
             onChange={(e) => updateFilters({ search: e.target.value })}
           />
         </div>
 
-        {/* Status select */}
-        <select
-          className="filter-select"
-          value={currentStatus}
-          onChange={(e) => updateFilters({ status: e.target.value })}
-        >
-          <option value="all">All Statuses</option>
-          <option value="pending">Pending Review</option>
-          <option value="approved">Approved</option>
-          <option value="applied">Applied</option>
-          <option value="rejected">Rejected</option>
-        </select>
+        {/* Status Filter */}
+        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+          <Filter size={14} color="var(--text-muted)" />
+          <select
+            className="select-field"
+            value={currentStatus}
+            onChange={(e) => updateFilters({ status: e.target.value })}
+          >
+            <option value="all">All Statuses</option>
+            <option value="pending">Pending Review</option>
+            <option value="approved">Approved</option>
+            <option value="applied">Applied / Submitted</option>
+            <option value="rejected">Rejected</option>
+          </select>
+        </div>
 
-        {/* Recommendation select */}
+        {/* Recommendation Filter */}
         <select
-          className="filter-select"
+          className="select-field"
           value={currentRec}
           onChange={(e) => updateFilters({ recommendation: e.target.value })}
         >
@@ -97,25 +107,27 @@ export default function JobsFilterBar() {
 
         {/* Minimum Match Score */}
         <select
-          className="filter-select"
+          className="select-field"
           value={currentMinScore}
           onChange={(e) => updateFilters({ min_score: e.target.value })}
         >
           <option value="0">Any Match Score</option>
-          <option value="50">Score ≥ 50%</option>
-          <option value="75">Score ≥ 75%</option>
-          <option value="90">Score ≥ 90%</option>
+          <option value="50">Match ≥ 50%</option>
+          <option value="75">Match ≥ 75%</option>
+          <option value="90">Match ≥ 90%</option>
         </select>
 
-        {/* Relevance toggle */}
+        {/* Relevance Toggle */}
         <button
           type="button"
-          className={`filter-btn ${currentRelevant === "1" ? "filter-btn-active" : ""}`}
+          className={`btn-secondary ${currentRelevant === "1" ? "btn-primary" : ""}`}
+          style={{ padding: "8px 14px", fontSize: "12.5px" }}
           onClick={() =>
             updateFilters({ is_relevant: currentRelevant === "1" ? null : "1" })
           }
         >
-          {currentRelevant === "1" ? "✓ Relevant Only" : "Relevant Only"}
+          <Sparkles size={13} />
+          <span>{currentRelevant === "1" ? "Relevant Only" : "Filter Relevant"}</span>
         </button>
 
         {/* Clear Filters */}
@@ -123,17 +135,19 @@ export default function JobsFilterBar() {
           <button
             type="button"
             onClick={handleClear}
-            className="filter-btn"
-            style={{ color: "var(--danger)" }}
+            className="btn-danger"
+            style={{ padding: "8px 14px", fontSize: "12.5px" }}
           >
-            Clear Filters
+            <RotateCcw size={13} />
+            <span>Reset</span>
           </button>
         )}
 
         {isPending && (
-          <span style={{ fontSize: "12px", color: "var(--brand-light)" }}>
-            Updating...
-          </span>
+          <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "12px", color: "var(--accent-light)" }}>
+            <Loader2 size={14} className="animate-spin" />
+            <span>Updating...</span>
+          </div>
         )}
       </div>
     </div>

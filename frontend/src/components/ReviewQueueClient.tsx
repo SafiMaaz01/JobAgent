@@ -1,16 +1,23 @@
 "use client";
 
-/**
- * Interactive client component for the Human Review Queue.
- * 
- * Displays pending jobs recommended by AI and allows the candidate to
- * approve (to move to application package preparation) or reject them.
- */
-import { useState } from "react";
+import React, { useState } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import { JobDetail } from "@/lib/types";
-
 import { submitReview, getReviewQueue } from "@/lib/api";
-import { MatchScoreBadge, RecommendationBadge } from "./StatusBadge";
+import ScoreRing from "@/components/ui/ScoreRing";
+import { RecommendationBadge } from "./StatusBadge";
+import { useToast } from "@/components/ui/Toast";
+import {
+  CheckCircle2,
+  XCircle,
+  ExternalLink,
+  MapPin,
+  Building2,
+  Sparkles,
+  AlertTriangle,
+  Loader2,
+  Check,
+} from "lucide-react";
 
 interface ReviewQueueClientProps {
   initialJobs: JobDetail[];
@@ -19,26 +26,29 @@ interface ReviewQueueClientProps {
 export default function ReviewQueueClient({ initialJobs }: ReviewQueueClientProps) {
   const [jobs, setJobs] = useState<JobDetail[]>(initialJobs);
   const [processingId, setProcessingId] = useState<number | null>(null);
-  const [successMessage, setSuccessMessage] = useState<string | null>(null);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const { showToast } = useToast();
 
   const handleReviewAction = async (jobId: number, status: "approved" | "rejected") => {
     setProcessingId(jobId);
-    setErrorMessage(null);
-    setSuccessMessage(null);
-
     try {
       const response = await submitReview(jobId, status);
-      setSuccessMessage(response.message || `Job #${jobId} successfully marked as ${status}.`);
+      showToast(
+        `Job #${jobId} ${status === "approved" ? "Approved" : "Rejected"}`,
+        response.message || `Moved to ${status} state`,
+        status === "approved" ? "success" : "info"
+      );
 
-      // Refresh the queue from real backend
+      // Animate item out of local state
+      setJobs((prev) => prev.filter((j) => j.id !== jobId));
+
+      // Refresh authoritative queue from FastAPI backend
       const updatedQueue = await getReviewQueue();
       setJobs(updatedQueue);
     } catch (err: unknown) {
-      setErrorMessage(
-        err instanceof Error
-          ? err.message
-          : `Failed to submit ${status} decision for job #${jobId}`
+      showToast(
+        "Action Failed",
+        err instanceof Error ? err.message : `Failed to submit ${status} decision`,
+        "error"
       );
     } finally {
       setProcessingId(null);
@@ -47,275 +57,234 @@ export default function ReviewQueueClient({ initialJobs }: ReviewQueueClientProp
 
   return (
     <div>
-      {/* Notifications */}
-      {successMessage && (
+      {jobs.length === 0 ? (
         <div
+          className="glass-card"
           style={{
-            background: "var(--success-surface)",
-            border: "1px solid rgba(16, 185, 129, 0.4)",
-            color: "#6ee7b7",
-            padding: "12px 16px",
-            borderRadius: "var(--radius-lg)",
-            marginBottom: "20px",
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
+            padding: "60px 24px",
+            textAlign: "center",
+            background: "linear-gradient(135deg, rgba(19, 27, 46, 0.9) 0%, rgba(26, 36, 61, 0.9) 100%)",
           }}
         >
-          <span>✓ {successMessage}</span>
-          <button
-            onClick={() => setSuccessMessage(null)}
+          <div
             style={{
-              background: "transparent",
-              border: "none",
-              color: "#6ee7b7",
-              cursor: "pointer",
-              fontSize: "14px",
+              width: "56px",
+              height: "56px",
+              borderRadius: "50%",
+              background: "var(--success-surface)",
+              border: "1px solid var(--success-border)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              color: "var(--success)",
+              margin: "0 auto 16px auto",
             }}
           >
-            ✕
-          </button>
-        </div>
-      )}
-
-      {errorMessage && (
-        <div className="error-banner">
-          <div className="error-title">Action Failed</div>
-          <div>{errorMessage}</div>
-        </div>
-      )}
-
-      {/* Empty State */}
-      {jobs.length === 0 ? (
-        <div className="table-container">
-          <div className="empty-state">
-            <div style={{ fontSize: "28px", marginBottom: "12px" }}>🎉</div>
-            <div className="empty-state-title">Review queue is empty!</div>
-            <div className="empty-state-desc">
-              All recommended jobs have been reviewed. Check the Jobs Directory or Dashboard for approved listings.
-            </div>
+            <Check size={28} />
+          </div>
+          <div style={{ fontSize: "18px", fontWeight: "800", color: "var(--text-primary)" }}>
+            Review Queue is Clear!
+          </div>
+          <div style={{ fontSize: "13.5px", color: "var(--text-muted)", marginTop: "6px", maxWidth: "480px", margin: "6px auto 0 auto" }}>
+            All candidate match recommendations have been reviewed. Approved jobs are ready for application package preparation.
           </div>
         </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
-          <div style={{ fontSize: "13px", color: "var(--text-secondary)" }}>
-            Showing <strong>{jobs.length}</strong> job{jobs.length === 1 ? "" : "s"} awaiting decision
+          <div style={{ fontSize: "13px", color: "var(--text-secondary)", display: "flex", alignItems: "center", gap: "8px" }}>
+            <span>Awaiting manual decision:</span>
+            <strong style={{ color: "var(--text-primary)" }}>{jobs.length} Job{jobs.length === 1 ? "" : "s"}</strong>
           </div>
 
-          {jobs.map((job) => {
-            const match = job.match_details;
-            const isProcessing = processingId === job.id;
+          <AnimatePresence mode="popLayout">
+            {jobs.map((job) => {
+              const match = job.match_details;
+              const isProcessing = processingId === job.id;
 
-            return (
-              <div
-                key={job.id}
-                style={{
-                  backgroundColor: "var(--bg-surface)",
-                  border: "1px solid var(--border-color)",
-                  borderRadius: "var(--radius-lg)",
-                  padding: "24px",
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: "18px",
-                  transition: "border-color 0.15s ease",
-                }}
-              >
-                {/* Header Row */}
-                <div
+              return (
+                <motion.div
+                  key={job.id}
+                  layout
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, x: -100, scale: 0.95 }}
+                  transition={{ duration: 0.25 }}
+                  className="glass-card"
                   style={{
+                    padding: "24px",
                     display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "flex-start",
-                    flexWrap: "wrap",
-                    gap: "12px",
+                    flexDirection: "column",
+                    gap: "20px",
                   }}
                 >
-                  <div>
-                    <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "6px" }}>
-                      <span style={{ fontSize: "11px", color: "var(--text-muted)", fontFamily: "monospace" }}>
-                        ID #{job.id}
-                      </span>
-                      <span
-                        style={{
-                          fontSize: "11px",
-                          color: "var(--warning)",
-                          background: "var(--warning-surface)",
-                          padding: "2px 8px",
-                          borderRadius: "4px",
-                          fontWeight: "600",
-                          textTransform: "uppercase",
-                        }}
-                      >
-                        Pending Decision
-                      </span>
+                  {/* Top Header */}
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "flex-start",
+                      flexWrap: "wrap",
+                      gap: "16px",
+                    }}
+                  >
+                    <div style={{ display: "flex", alignItems: "flex-start", gap: "14px" }}>
+                      <ScoreRing score={job.match_score} size={52} strokeWidth={4} />
+                      <div>
+                        <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
+                          <span className="mono-text" style={{ fontSize: "11px", color: "var(--text-muted)" }}>
+                            JOB #{job.id}
+                          </span>
+                          <span className="badge-semantic badge-pending">
+                            Pending Review
+                          </span>
+                        </div>
+                        <h2 style={{ fontSize: "18px", fontWeight: "800", color: "var(--text-primary)" }}>
+                          {job.title}
+                        </h2>
+                        <div style={{ display: "flex", alignItems: "center", gap: "10px", marginTop: "4px", fontSize: "13px", color: "var(--text-secondary)" }}>
+                          <span style={{ fontWeight: "700", color: "var(--text-primary)" }}>{job.company}</span>
+                          <span>•</span>
+                          <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+                            <MapPin size={13} color="var(--text-muted)" />
+                            <span>{job.location || "Remote / Flexible"}</span>
+                          </div>
+                        </div>
+                      </div>
                     </div>
 
-                    <h2 style={{ fontSize: "18px", fontWeight: "700", color: "var(--text-primary)" }}>
-                      {job.title}
-                    </h2>
-                    <div style={{ fontSize: "13px", color: "var(--text-secondary)", marginTop: "3px" }}>
-                      <strong style={{ color: "var(--text-primary)" }}>{job.company}</strong> •{" "}
-                      {job.location || "Remote / Not specified"}
-                    </div>
-                  </div>
-
-                  {/* Score and Decision pills */}
-                  <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-                    <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end" }}>
-                      <span style={{ fontSize: "11px", color: "var(--text-muted)", marginBottom: "3px" }}>
-                        Match Score
-                      </span>
-                      <MatchScoreBadge score={job.match_score} />
-                    </div>
-                    <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end" }}>
-                      <span style={{ fontSize: "11px", color: "var(--text-muted)", marginBottom: "3px" }}>
-                        Recommendation
-                      </span>
+                    <div>
+                      <div style={{ fontSize: "11px", color: "var(--text-muted)", textTransform: "uppercase", fontWeight: "700", marginBottom: "4px", textAlign: "right" }}>
+                        LLM Recommendation
+                      </div>
                       <RecommendationBadge recommendation={job.recommendation} />
                     </div>
                   </div>
-                </div>
 
-                {/* AI Reasoning Box */}
-                {match?.reason && (
+                  {/* AI Reasoning */}
+                  {match?.reason && (
+                    <div
+                      style={{
+                        background: "var(--bg-surface-0)",
+                        border: "1px solid var(--border-subtle)",
+                        borderRadius: "var(--radius-md)",
+                        padding: "14px 16px",
+                      }}
+                    >
+                      <div style={{ fontSize: "11px", fontWeight: "700", textTransform: "uppercase", color: "var(--accent-light)", marginBottom: "4px", display: "flex", alignItems: "center", gap: "6px" }}>
+                        <Sparkles size={12} />
+                        <span>Match Rationale</span>
+                      </div>
+                      <p style={{ fontSize: "13px", color: "var(--text-primary)", lineHeight: 1.6 }}>
+                        {match.reason}
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Candidate Match Breakdown */}
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: "14px" }}>
+                    {/* Strengths */}
+                    {match?.strong_matches && match.strong_matches.length > 0 && (
+                      <div style={{ background: "var(--bg-surface-0)", border: "1px solid var(--border-subtle)", borderRadius: "var(--radius-md)", padding: "14px" }}>
+                        <div style={{ fontSize: "12px", fontWeight: "700", color: "var(--success)", marginBottom: "8px", display: "flex", alignItems: "center", gap: "6px" }}>
+                          <CheckCircle2 size={14} />
+                          <span>Candidate Strengths ({match.strong_matches.length})</span>
+                        </div>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
+                          {match.strong_matches.map((item, idx) => (
+                            <span
+                              key={idx}
+                              style={{
+                                fontSize: "11.5px",
+                                padding: "3px 8px",
+                                borderRadius: "var(--radius-sm)",
+                                background: "var(--success-surface)",
+                                border: "1px solid var(--success-border)",
+                                color: "var(--success)",
+                              }}
+                            >
+                              {item}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Missing */}
+                    {match?.minimum_requirements_missing && match.minimum_requirements_missing.length > 0 && (
+                      <div style={{ background: "var(--bg-surface-0)", border: "1px solid var(--border-subtle)", borderRadius: "var(--radius-md)", padding: "14px" }}>
+                        <div style={{ fontSize: "12px", fontWeight: "700", color: "var(--danger)", marginBottom: "8px", display: "flex", alignItems: "center", gap: "6px" }}>
+                          <XCircle size={14} />
+                          <span>Missing Requirements ({match.minimum_requirements_missing.length})</span>
+                        </div>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
+                          {match.minimum_requirements_missing.map((item, idx) => (
+                            <span
+                              key={idx}
+                              style={{
+                                fontSize: "11.5px",
+                                padding: "3px 8px",
+                                borderRadius: "var(--radius-sm)",
+                                background: "var(--danger-surface)",
+                                border: "1px solid var(--danger-border)",
+                                color: "#f87171",
+                              }}
+                            >
+                              {item}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Actions Footer */}
                   <div
                     style={{
-                      backgroundColor: "var(--bg-subtle)",
-                      border: "1px solid var(--border-color)",
-                      borderRadius: "var(--radius-md)",
-                      padding: "14px 16px",
-                    }}
-                  >
-                    <div style={{ fontSize: "11px", fontWeight: "600", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: "4px" }}>
-                      AI Match Reasoning
-                    </div>
-                    <p style={{ fontSize: "13px", color: "var(--text-primary)", lineHeight: 1.5 }}>
-                      {match.reason}
-                    </p>
-                  </div>
-                )}
-
-                {/* Match Details Lists */}
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "14px" }}>
-                  {/* Strong Matches */}
-                  {match?.strong_matches && match.strong_matches.length > 0 && (
-                    <div style={{ backgroundColor: "var(--bg-primary)", border: "1px solid var(--border-color)", borderRadius: "var(--radius-md)", padding: "14px" }}>
-                      <div style={{ fontSize: "11px", fontWeight: "600", color: "var(--success)", marginBottom: "8px" }}>
-                        ✓ Key Strengths ({match.strong_matches.length})
-                      </div>
-                      <div className="tag-list">
-                        {match.strong_matches.map((item, idx) => (
-                          <span key={idx} className="tag-item tag-item-strong">
-                            {item}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Missing Requirements */}
-                  {match?.minimum_requirements_missing && match.minimum_requirements_missing.length > 0 && (
-                    <div style={{ backgroundColor: "var(--bg-primary)", border: "1px solid var(--border-color)", borderRadius: "var(--radius-md)", padding: "14px" }}>
-                      <div style={{ fontSize: "11px", fontWeight: "600", color: "var(--danger)", marginBottom: "8px" }}>
-                        ✕ Missing Requirements ({match.minimum_requirements_missing.length})
-                      </div>
-                      <div className="tag-list">
-                        {match.minimum_requirements_missing.map((item, idx) => (
-                          <span key={idx} className="tag-item tag-item-missing">
-                            {item}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Potential Concerns */}
-                  {match?.concerns && match.concerns.length > 0 && (
-                    <div style={{ backgroundColor: "var(--bg-primary)", border: "1px solid var(--border-color)", borderRadius: "var(--radius-md)", padding: "14px" }}>
-                      <div style={{ fontSize: "11px", fontWeight: "600", color: "var(--warning)", marginBottom: "8px" }}>
-                        ⚠ Potential Concerns ({match.concerns.length})
-                      </div>
-                      <div className="tag-list">
-                        {match.concerns.map((item, idx) => (
-                          <span key={idx} className="tag-item tag-item-concern">
-                            {item}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {/* Actions Row */}
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    borderTop: "1px solid var(--border-color)",
-                    paddingTop: "16px",
-                    marginTop: "6px",
-                  }}
-                >
-                  <a
-                    href={job.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    style={{
-                      fontSize: "13px",
-                      color: "var(--brand-light)",
-                      display: "inline-flex",
+                      display: "flex",
+                      justifyContent: "space-between",
                       alignItems: "center",
-                      gap: "4px",
+                      borderTop: "1px solid var(--border-subtle)",
+                      paddingTop: "16px",
                     }}
                   >
-                    View Job Posting ↗
-                  </a>
-
-                  <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                    <button
-                      type="button"
-                      disabled={isProcessing}
-                      onClick={() => handleReviewAction(job.id, "rejected")}
-                      style={{
-                        padding: "8px 18px",
-                        backgroundColor: "rgba(239, 68, 68, 0.15)",
-                        border: "1px solid rgba(239, 68, 68, 0.4)",
-                        borderRadius: "var(--radius-md)",
-                        color: "#fca5a5",
-                        fontSize: "13px",
-                        fontWeight: "600",
-                        cursor: isProcessing ? "not-allowed" : "pointer",
-                        transition: "all 0.12s ease",
-                      }}
+                    <a
+                      href={job.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="btn-secondary"
+                      style={{ padding: "6px 12px", fontSize: "12px" }}
                     >
-                      {isProcessing ? "Processing..." : "✕ Reject"}
-                    </button>
+                      <span>External Listing</span>
+                      <ExternalLink size={12} />
+                    </a>
 
-                    <button
-                      type="button"
-                      disabled={isProcessing}
-                      onClick={() => handleReviewAction(job.id, "approved")}
-                      style={{
-                        padding: "8px 22px",
-                        backgroundColor: "var(--success)",
-                        border: "1px solid var(--success)",
-                        borderRadius: "var(--radius-md)",
-                        color: "#fff",
-                        fontSize: "13px",
-                        fontWeight: "600",
-                        cursor: isProcessing ? "not-allowed" : "pointer",
-                        boxShadow: "0 2px 8px rgba(16, 185, 129, 0.3)",
-                        transition: "all 0.12s ease",
-                      }}
-                    >
-                      {isProcessing ? "Processing..." : "✓ Approve for Application"}
-                    </button>
+                    {/* Single-item Deliberate Review Actions */}
+                    <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                      <button
+                        type="button"
+                        disabled={isProcessing}
+                        onClick={() => handleReviewAction(job.id, "rejected")}
+                        className="btn-danger"
+                      >
+                        {isProcessing ? <Loader2 size={14} className="animate-spin" /> : <XCircle size={16} />}
+                        <span>Reject</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        disabled={isProcessing}
+                        onClick={() => handleReviewAction(job.id, "approved")}
+                        className="btn-success"
+                      >
+                        {isProcessing ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={16} />}
+                        <span>Approve Job</span>
+                      </button>
+                    </div>
                   </div>
-                </div>
-              </div>
-            );
-          })}
+                </motion.div>
+              );
+            })}
+          </AnimatePresence>
         </div>
       )}
     </div>

@@ -1,15 +1,7 @@
 "use client";
 
-/**
- * Client component for the Applications Hub.
- * 
- * Manages two sections:
- * 1. Approved Jobs Ready to Prepare (calls POST /api/applications/{id}/prepare)
- * 2. Active Application Packages (with status indicators, launcher triggers, and detail links)
- */
-import { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import Link from "next/link";
-
 import { ApplicationSummary, JobSummary, TaskStatus } from "@/lib/types";
 import {
   prepareApplicationPackage,
@@ -19,7 +11,22 @@ import {
   getTaskStatus,
   cancelTask,
 } from "@/lib/api";
-import { MatchScoreBadge, RecommendationBadge, ReviewStatusBadge } from "./StatusBadge";
+import ScoreRing from "@/components/ui/ScoreRing";
+import { ReviewStatusBadge } from "./StatusBadge";
+import { useToast } from "@/components/ui/Toast";
+import {
+  FileCheck,
+  Play,
+  Square,
+  ArrowRight,
+  Building2,
+  MapPin,
+  Sparkles,
+  Loader2,
+  CheckCircle2,
+  FileText,
+  AlertTriangle,
+} from "lucide-react";
 
 interface ApplicationsClientProps {
   initialApplications: ApplicationSummary[];
@@ -34,9 +41,8 @@ export default function ApplicationsClient({
   const [eligibleJobs, setEligibleJobs] = useState<JobSummary[]>(initialEligibleJobs);
   const [preparingId, setPreparingId] = useState<number | null>(null);
   const [taskStatus, setTaskStatus] = useState<TaskStatus | null>(null);
-  const [successMessage, setSuccessMessage] = useState<string | null>(null);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
+  const { showToast } = useToast();
 
   const activeJobId = taskStatus?.details?.job_id;
   const isTaskRunning =
@@ -50,7 +56,6 @@ export default function ApplicationsClient({
       const status = await getTaskStatus();
       setTaskStatus(status);
       if (status.status === "completed") {
-        // Refresh application list if completed
         const updatedApps = await getApplications();
         setApplications(updatedApps);
       }
@@ -77,14 +82,10 @@ export default function ApplicationsClient({
 
   const handlePreparePackage = async (jobId: number) => {
     setPreparingId(jobId);
-    setErrorMessage(null);
-    setSuccessMessage(null);
-
     try {
       const result = await prepareApplicationPackage(jobId);
-      setSuccessMessage(result.message);
+      showToast("Package Prepared", result.message, "success");
 
-      // Refresh both lists
       const [updatedApps, updatedEligible] = await Promise.all([
         getApplications(),
         getEligibleJobsForPreparation(),
@@ -92,10 +93,10 @@ export default function ApplicationsClient({
       setApplications(updatedApps);
       setEligibleJobs(updatedEligible);
     } catch (err: unknown) {
-      setErrorMessage(
-        err instanceof Error
-          ? err.message
-          : `Failed to prepare application package for job #${jobId}`
+      showToast(
+        "Preparation Failed",
+        err instanceof Error ? err.message : "Failed to prepare package",
+        "error"
       );
     } finally {
       setPreparingId(null);
@@ -103,16 +104,15 @@ export default function ApplicationsClient({
   };
 
   const handleStartAutofill = async (jobId: number) => {
-    setErrorMessage(null);
     try {
       const res = await startAutofill(jobId);
       setTaskStatus(res);
-      setSuccessMessage(res.message);
+      showToast("Automation Started", res.message, "info");
     } catch (err: unknown) {
-      setErrorMessage(
-        err instanceof Error
-          ? err.message
-          : `Failed to launch autofill for job #${jobId}`
+      showToast(
+        "Autofill Failed",
+        err instanceof Error ? err.message : "Failed to launch autofill runner",
+        "error"
       );
     }
   };
@@ -121,316 +121,208 @@ export default function ApplicationsClient({
     try {
       await cancelTask();
       await checkGlobalTask();
+      showToast("Task Cancelled", "Playwright runner stopped", "info");
     } catch (err: unknown) {
-      setErrorMessage(
-        err instanceof Error ? err.message : "Failed to cancel automation"
+      showToast(
+        "Cancel Failed",
+        err instanceof Error ? err.message : "Failed to cancel automation",
+        "error"
       );
     }
   };
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "32px" }}>
-      {/* Notifications */}
-      {successMessage && (
-        <div
-          style={{
-            background: "var(--success-surface)",
-            border: "1px solid rgba(16, 185, 129, 0.4)",
-            color: "#6ee7b7",
-            padding: "12px 16px",
-            borderRadius: "var(--radius-lg)",
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-          }}
-        >
-          <span>✓ {successMessage}</span>
-          <button
-            onClick={() => setSuccessMessage(null)}
-            style={{
-              background: "transparent",
-              border: "none",
-              color: "#6ee7b7",
-              cursor: "pointer",
-              fontSize: "14px",
-            }}
-          >
-            ✕
-          </button>
-        </div>
-      )}
-
-      {errorMessage && (
-        <div className="error-banner">
-          <div className="error-title">Action Error</div>
-          <div>{errorMessage}</div>
-        </div>
-      )}
-
-      {/* Global Active Automation Banner */}
+      {/* Active Automation Banner */}
       {isTaskRunning && taskStatus && (
         <div
+          className="glass-card"
           style={{
-            background: "var(--bg-surface)",
-            border:
+            padding: "20px 24px",
+            borderColor:
               taskStatus.status === "waiting_for_confirmation"
-                ? "1px solid rgba(245, 158, 11, 0.7)"
-                : "1px solid var(--brand)",
-            borderRadius: "var(--radius-lg)",
-            padding: "18px 22px",
-            boxShadow:
+                ? "var(--warning-border)"
+                : "var(--border-glow)",
+            background:
               taskStatus.status === "waiting_for_confirmation"
-                ? "0 4px 20px rgba(245, 158, 11, 0.2)"
-                : "0 4px 20px rgba(59, 130, 246, 0.15)",
+                ? "var(--warning-surface)"
+                : "var(--accent-surface)",
           }}
         >
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-              <span
-                style={{
-                  display: "inline-block",
-                  width: "10px",
-                  height: "10px",
-                  borderRadius: "50%",
-                  backgroundColor:
-                    taskStatus.status === "waiting_for_confirmation"
-                      ? "var(--warning)"
-                      : "var(--brand)",
-                  animation: "pulse 1.5s infinite",
-                }}
-              />
-              <span style={{ fontWeight: "700", fontSize: "14px", color: "var(--text-primary)" }}>
-                Active Autofill Runner: {taskStatus.details?.company} — {taskStatus.details?.role}
-              </span>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px", flexWrap: "wrap", gap: "12px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+              <Loader2 size={20} className="animate-spin" color="var(--accent-light)" />
+              <div>
+                <div style={{ fontWeight: "800", fontSize: "15px", color: "var(--text-primary)" }}>
+                  Active Browser Automation Runner: {taskStatus.details?.company} — {taskStatus.details?.role}
+                </div>
+                <div style={{ fontSize: "12.5px", color: "var(--text-secondary)", marginTop: "2px" }}>
+                  {taskStatus.message}
+                </div>
+              </div>
             </div>
 
             <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
               {activeJobId && (
-                <Link
-                  href={`/applications/${activeJobId}`}
-                  style={{
-                    background: "var(--brand-surface)",
-                    border: "1px solid var(--brand)",
-                    color: "var(--brand-light)",
-                    borderRadius: "var(--radius-sm)",
-                    padding: "4px 10px",
-                    fontSize: "12px",
-                    fontWeight: "600",
-                    textDecoration: "none",
-                  }}
-                >
-                  View Details & Logs →
+                <Link href={`/applications/${activeJobId}`} className="btn-primary" style={{ padding: "6px 12px", fontSize: "12px" }}>
+                  <span>Inspect Control Room</span>
+                  <ArrowRight size={14} />
                 </Link>
               )}
-              <button
-                onClick={handleCancelTask}
-                style={{
-                  background: "var(--danger-surface)",
-                  border: "1px solid rgba(239, 68, 68, 0.3)",
-                  color: "var(--danger)",
-                  borderRadius: "var(--radius-sm)",
-                  padding: "4px 10px",
-                  fontSize: "12px",
-                  fontWeight: "600",
-                  cursor: "pointer",
-                }}
-              >
-                Cancel / Close Browser
+              <button onClick={handleCancelTask} className="btn-danger" style={{ padding: "6px 12px", fontSize: "12px" }}>
+                <Square size={14} />
+                <span>Stop Runner</span>
               </button>
             </div>
           </div>
 
-          {/* Progress bar */}
-          <div
-            style={{
-              width: "100%",
-              height: "5px",
-              backgroundColor: "var(--border-color)",
-              borderRadius: "3px",
-              overflow: "hidden",
-              marginBottom: "8px",
-            }}
-          >
-            <div
-              style={{
-                width: `${taskStatus.progress}%`,
-                height: "100%",
-                backgroundColor:
-                  taskStatus.status === "waiting_for_confirmation"
-                    ? "var(--warning)"
-                    : "var(--brand)",
-                transition: "width 0.4s ease",
-              }}
-            />
-          </div>
-
-          <div style={{ display: "flex", justifyContent: "space-between", fontSize: "12px", color: "var(--text-secondary)" }}>
-            <span>{taskStatus.message}</span>
-            <span style={{ fontFamily: "monospace" }}>{taskStatus.progress}%</span>
+          <div style={{ width: "100%", height: "6px", background: "var(--bg-surface-0)", borderRadius: "3px", overflow: "hidden" }}>
+            <div style={{ width: `${taskStatus.progress}%`, height: "100%", background: "var(--accent-primary)", transition: "width 0.4s ease" }} />
           </div>
         </div>
       )}
 
-      {/* Section 1: Prepared Application Packages */}
+      {/* Prepared Application Packages Table */}
       <div>
-        <div className="section-header">
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
           <div>
-            <h2 className="section-title">Application Packages</h2>
-            <p className="page-subtitle">
-              Generated packages ready for review and authoritative browser autofill
+            <h2 className="section-title">Application Packages Hub</h2>
+            <p className="caption-text">
+              Generated candidate packages (JSON metadata, resume PDF, cover letter, QA answers)
             </p>
           </div>
-          <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>
-            {applications.length} package{applications.length === 1 ? "" : "s"} found
+          <span className="mono-text" style={{ fontSize: "12px", color: "var(--text-muted)" }}>
+            {applications.length} Packages
           </span>
         </div>
 
         {applications.length === 0 ? (
-          <div className="table-container">
-            <div className="empty-state">
-              <div className="empty-state-title">No application packages found</div>
-              <div className="empty-state-desc">
-                Approved jobs must have their application package prepared before submission.
-              </div>
+          <div className="glass-card" style={{ padding: "48px 24px", textAlign: "center", color: "var(--text-muted)" }}>
+            <FileText size={28} style={{ margin: "0 auto 12px auto" }} />
+            <div style={{ fontSize: "15px", fontWeight: "600", color: "var(--text-primary)" }}>
+              No application packages prepared yet
+            </div>
+            <div style={{ fontSize: "13px", marginTop: "4px" }}>
+              Approved jobs will appear below in the Preparation Queue.
             </div>
           </div>
         ) : (
-          <div className="table-container">
+          <div className="data-table-container">
             <table className="data-table">
               <thead>
                 <tr>
-                  <th style={{ width: "80px" }}>Score</th>
-                  <th>Company</th>
-                  <th>Job Title</th>
+                  <th style={{ width: "70px", textAlign: "center" }}>Match</th>
+                  <th>Company & Role</th>
                   <th>Location</th>
-                  <th style={{ width: "130px" }}>Package Status</th>
+                  <th style={{ width: "140px" }}>Status</th>
                   <th style={{ width: "100px" }}>Resume</th>
-                  <th style={{ width: "100px" }}>Created</th>
-                  <th style={{ width: "240px", textAlign: "right" }}>Action</th>
+                  <th style={{ width: "110px" }}>Created</th>
+                  <th style={{ width: "220px", textAlign: "right" }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {applications.map((app) => {
                   const isAppRunning = isTaskRunning && activeJobId === app.job_id;
-                  const isApplied = app.application_status === "applied";
+                  const isApplied = app.application_status === "applied" || app.application_status === "submitted";
                   const isApproved = app.review_status === "approved";
                   const canAutofill = isApproved && !isApplied && !isTaskRunning;
 
                   return (
                     <tr key={app.job_id}>
-                      <td>
-                        <MatchScoreBadge score={app.match_score} />
-                      </td>
-                      <td style={{ fontWeight: "600", color: "var(--text-primary)" }}>
-                        {app.company}
+                      <td style={{ textAlign: "center" }}>
+                        <ScoreRing score={app.match_score} size={38} strokeWidth={3.5} />
                       </td>
                       <td>
-                        <div style={{ fontWeight: "500" }}>{app.title}</div>
-                        <div style={{ fontSize: "11px", color: "var(--text-muted)" }}>
-                          ID #{app.job_id}
+                        <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                          <div
+                            style={{
+                              width: "34px",
+                              height: "34px",
+                              borderRadius: "var(--radius-sm)",
+                              background: "var(--bg-surface-1)",
+                              border: "1px solid var(--border-subtle)",
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              color: "var(--accent-light)",
+                              fontWeight: "700",
+                              fontSize: "13px",
+                              flexShrink: 0,
+                            }}
+                          >
+                            <Building2 size={16} />
+                          </div>
+                          <div>
+                            <div style={{ fontWeight: "700", color: "var(--text-primary)", fontSize: "13.5px" }}>
+                              {app.title}
+                            </div>
+                            <div style={{ fontSize: "12px", color: "var(--text-secondary)", marginTop: "1px" }}>
+                              {app.company}
+                            </div>
+                          </div>
                         </div>
                       </td>
-                      <td style={{ color: "var(--text-secondary)" }}>
-                        {app.location || "Remote / Not specified"}
+                      <td>
+                        <div style={{ display: "flex", alignItems: "center", gap: "6px", color: "var(--text-secondary)", fontSize: "12.5px" }}>
+                          <MapPin size={13} color="var(--text-muted)" />
+                          <span>{app.location || "Remote / Flexible"}</span>
+                        </div>
                       </td>
                       <td>
                         <span
-                          className="badge"
+                          className="badge-semantic"
                           style={{
-                            backgroundColor:
-                              isApplied
-                                ? "var(--purple-surface)"
-                                : app.application_status === "ready_for_review"
-                                ? "var(--success-surface)"
-                                : "var(--bg-subtle)",
-                            color:
-                              isApplied
-                                ? "var(--purple)"
-                                : app.application_status === "ready_for_review"
-                                ? "var(--success)"
-                                : "var(--text-secondary)",
-                            border:
-                              isApplied
-                                ? "1px solid rgba(139, 92, 246, 0.3)"
-                                : "1px solid rgba(16, 185, 129, 0.3)",
+                            background: isApplied ? "var(--success-surface)" : "var(--accent-surface)",
+                            color: isApplied ? "var(--success)" : "var(--accent-light)",
+                            border: isApplied ? "1px solid var(--success-border)" : "1px solid var(--border-glow)",
                           }}
                         >
-                          {isApplied
-                            ? "Submitted / Applied"
-                            : app.application_status === "ready_for_review"
-                            ? "Ready for Review"
-                            : app.application_status}
+                          {isApplied ? "Submitted" : app.application_status}
                         </span>
                       </td>
                       <td>
                         {app.has_resume ? (
-                          <span style={{ fontSize: "12px", color: "var(--success)" }}>
-                            ✓ PDF
+                          <span style={{ fontSize: "12px", color: "var(--success)", fontWeight: "600" }}>
+                            ✓ PDF Ready
                           </span>
                         ) : (
-                          <span style={{ fontSize: "12px", color: "var(--danger)" }}>
+                          <span style={{ fontSize: "12px", color: "var(--danger)", fontWeight: "600" }}>
                             ✕ Missing
                           </span>
                         )}
                       </td>
-                      <td style={{ fontSize: "12px", color: "var(--text-muted)" }}>
+                      <td className="mono-text" style={{ fontSize: "12px", color: "var(--text-muted)" }}>
                         {app.created_at ? app.created_at.split("T")[0] : "—"}
                       </td>
-
                       <td style={{ textAlign: "right" }}>
                         <div style={{ display: "inline-flex", gap: "8px", alignItems: "center" }}>
                           {isAppRunning ? (
-                            <span
-                              style={{
-                                fontSize: "12px",
-                                color: "var(--brand-light)",
-                                fontWeight: "600",
-                                display: "inline-flex",
-                                alignItems: "center",
-                                gap: "4px",
-                              }}
-                            >
-                              ⚙️ Autofilling...
+                            <span style={{ fontSize: "12px", color: "var(--accent-light)", fontWeight: "600", display: "inline-flex", alignItems: "center", gap: "6px" }}>
+                              <Loader2 size={13} className="animate-spin" />
+                              <span>Autofilling...</span>
                             </span>
                           ) : canAutofill ? (
                             <button
                               onClick={() => handleStartAutofill(app.job_id)}
-                              style={{
-                                background: "var(--brand)",
-                                border: "none",
-                                color: "#fff",
-                                borderRadius: "var(--radius-sm)",
-                                padding: "5px 10px",
-                                fontSize: "12px",
-                                fontWeight: "600",
-                                cursor: "pointer",
-                              }}
+                              className="btn-primary"
+                              style={{ padding: "5px 10px", fontSize: "11.5px" }}
                             >
-                              ▶ Run Autofill
+                              <Play size={12} />
+                              <span>Run Autofill</span>
                             </button>
                           ) : isApplied ? (
-                            <span style={{ fontSize: "12px", color: "var(--purple)", fontWeight: "500" }}>
-                              ✓ Applied
+                            <span style={{ fontSize: "12px", color: "var(--success)", fontWeight: "600" }}>
+                              ✓ Submitted
                             </span>
                           ) : null}
 
                           <Link
                             href={`/applications/${app.job_id}`}
-                            style={{
-                              background: "var(--brand-surface)",
-                              border: "1px solid var(--brand)",
-                              color: "var(--brand-light)",
-                              borderRadius: "var(--radius-sm)",
-                              padding: "5px 10px",
-                              fontSize: "12px",
-                              fontWeight: "600",
-                              display: "inline-flex",
-                              alignItems: "center",
-                              gap: "4px",
-                              textDecoration: "none",
-                            }}
+                            className="btn-secondary"
+                            style={{ padding: "5px 10px", fontSize: "11.5px" }}
                           >
-                            Inspect →
+                            <span>Inspect Control Room</span>
+                            <ArrowRight size={12} />
                           </Link>
                         </div>
                       </td>
@@ -443,91 +335,100 @@ export default function ApplicationsClient({
         )}
       </div>
 
-      {/* Section 2: Approved Jobs Eligible for Package Preparation */}
+      {/* Approved Jobs Awaiting Package Preparation */}
       <div>
-        <div className="section-header">
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
           <div>
             <h2 className="section-title">Approved Jobs Awaiting Package Preparation</h2>
-            <p className="page-subtitle">
-              Jobs approved during review that need an application package prepared
+            <p className="caption-text">
+              Approved opportunities from Review Queue needing package generation
             </p>
           </div>
-          <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>
-            {eligibleJobs.length} eligible
+          <span className="mono-text" style={{ fontSize: "12px", color: "var(--text-muted)" }}>
+            {eligibleJobs.length} Eligible
           </span>
         </div>
 
         {eligibleJobs.length === 0 ? (
-          <div className="table-container">
-            <div className="empty-state">
-              <div className="empty-state-title">No approved jobs awaiting preparation</div>
-              <div className="empty-state-desc">
-                All approved jobs have application packages prepared. Review more jobs in the{" "}
-                <Link href="/review" style={{ color: "var(--brand-light)" }}>
-                  Review Queue
-                </Link>
-                .
-              </div>
+          <div className="glass-card" style={{ padding: "48px 24px", textAlign: "center", color: "var(--text-muted)" }}>
+            <CheckCircle2 size={28} style={{ margin: "0 auto 12px auto" }} />
+            <div style={{ fontSize: "15px", fontWeight: "600", color: "var(--text-primary)" }}>
+              No approved jobs awaiting package preparation
+            </div>
+            <div style={{ fontSize: "13px", marginTop: "4px" }}>
+              All approved listings have been processed. Review more opportunities in the{" "}
+              <Link href="/review" style={{ color: "var(--accent-light)", fontWeight: "600" }}>
+                Review Queue
+              </Link>
+              .
             </div>
           </div>
         ) : (
-          <div className="table-container">
+          <div className="data-table-container">
             <table className="data-table">
               <thead>
                 <tr>
-                  <th style={{ width: "80px" }}>Score</th>
-                  <th>Company</th>
-                  <th>Job Title</th>
+                  <th style={{ width: "70px", textAlign: "center" }}>Score</th>
+                  <th>Company & Role</th>
                   <th>Location</th>
-                  <th style={{ width: "130px" }}>Review Status</th>
-                  <th style={{ width: "120px" }}>Recommendation</th>
+                  <th style={{ width: "120px" }}>Review Status</th>
                   <th style={{ width: "170px", textAlign: "right" }}>Action</th>
                 </tr>
               </thead>
               <tbody>
                 {eligibleJobs.map((job) => (
                   <tr key={job.id}>
-                    <td>
-                      <MatchScoreBadge score={job.match_score} />
-                    </td>
-                    <td style={{ fontWeight: "600", color: "var(--text-primary)" }}>
-                      {job.company}
+                    <td style={{ textAlign: "center" }}>
+                      <ScoreRing score={job.match_score} size={38} strokeWidth={3.5} />
                     </td>
                     <td>
-                      <div style={{ fontWeight: "500" }}>{job.title}</div>
-                      <div style={{ fontSize: "11px", color: "var(--text-muted)" }}>
-                        ID #{job.id}
+                      <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                        <div
+                          style={{
+                            width: "34px",
+                            height: "34px",
+                            borderRadius: "var(--radius-sm)",
+                            background: "var(--bg-surface-1)",
+                            border: "1px solid var(--border-subtle)",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            color: "var(--accent-light)",
+                            fontWeight: "700",
+                            fontSize: "13px",
+                            flexShrink: 0,
+                          }}
+                        >
+                          <Building2 size={16} />
+                        </div>
+                        <div>
+                          <div style={{ fontWeight: "700", color: "var(--text-primary)", fontSize: "13.5px" }}>
+                            {job.title}
+                          </div>
+                          <div style={{ fontSize: "12px", color: "var(--text-secondary)", marginTop: "1px" }}>
+                            {job.company}
+                          </div>
+                        </div>
                       </div>
                     </td>
-                    <td style={{ color: "var(--text-secondary)" }}>
-                      {job.location || "Remote / Not specified"}
+                    <td>
+                      <div style={{ display: "flex", alignItems: "center", gap: "6px", color: "var(--text-secondary)", fontSize: "12.5px" }}>
+                        <MapPin size={13} color="var(--text-muted)" />
+                        <span>{job.location || "Remote / Flexible"}</span>
+                      </div>
                     </td>
                     <td>
                       <ReviewStatusBadge status={job.review_status} />
-                    </td>
-                    <td>
-                      <RecommendationBadge recommendation={job.recommendation} />
                     </td>
                     <td style={{ textAlign: "right" }}>
                       <button
                         onClick={() => handlePreparePackage(job.id)}
                         disabled={preparingId === job.id}
-                        style={{
-                          background: "var(--brand)",
-                          border: "none",
-                          color: "#ffffff",
-                          borderRadius: "var(--radius-sm)",
-                          padding: "6px 14px",
-                          fontSize: "12px",
-                          fontWeight: "600",
-                          cursor: preparingId === job.id ? "not-allowed" : "pointer",
-                          opacity: preparingId === job.id ? 0.7 : 1,
-                          display: "inline-flex",
-                          alignItems: "center",
-                          gap: "6px",
-                        }}
+                        className="btn-primary"
+                        style={{ padding: "6px 14px", fontSize: "12px" }}
                       >
-                        {preparingId === job.id ? "Preparing..." : "Prepare Package"}
+                        {preparingId === job.id ? <Loader2 size={14} className="animate-spin" /> : <FileCheck size={14} />}
+                        <span>{preparingId === job.id ? "Generating Package..." : "Prepare Package"}</span>
                       </button>
                     </td>
                   </tr>
