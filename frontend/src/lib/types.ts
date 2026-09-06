@@ -73,3 +73,49 @@ export interface ReviewResponse {
   message: string;
 }
 
+export interface ApplicationSummary {
+  job_id: number;
+  company: string;
+  title: string;
+  location: string | null;
+  match_score: number | null;
+  recommendation: string | null;
+  review_status?: string | null;
+  application_status: string;
+  has_resume: boolean;
+  created_at: string | null;
+  applied_at: string | null;
+}
+
+export interface ApplicationDetail {
+  job_id: number;
+  company: string;
+  role: string;
+  location: string | null;
+  match_score: number | null;
+  recommendation: string | null;
+  review_status?: string | null;
+  job_url: string;
+  job_description?: string | null;
+  application_status: string;
+  resume_path?: string | null;
+  resume_exists: boolean;
+  resolved_answers: Record<string, unknown>;
+  candidate?: Record<string, unknown> | null;
+  match_details?: MatchDetails | null;
+  automation_status: string;
+  verification_status: string;
+  verification_checks: Array<Record<string, unknown>>;
+  submission_state: string;
+  created_at?: string | null;
+  applied_at?: string | null;
+}
+
+export interface PreparePackageResponse {
+  job_id: number;
+  status: string;
+  message: string;
+  package_file: string;
+}
+
+

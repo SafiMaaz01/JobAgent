@@ -1,4 +1,13 @@
-import { DashboardStats, JobDetail, JobListResponse, TaskStatus } from "./types";
+import {
+  ApplicationDetail,
+  ApplicationSummary,
+  DashboardStats,
+  JobDetail,
+  JobListResponse,
+  JobSummary,
+  PreparePackageResponse,
+  TaskStatus,
+} from "./types";
 
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000";
@@ -100,7 +109,28 @@ export async function submitReview(
   );
 }
 
+export async function getApplications(): Promise<ApplicationSummary[]> {
+  return fetchJson<ApplicationSummary[]>("/api/applications");
+}
+
+export async function getEligibleJobsForPreparation(): Promise<JobSummary[]> {
+  return fetchJson<JobSummary[]>("/api/applications/eligible-jobs");
+}
+
+export async function getApplicationDetail(jobId: number): Promise<ApplicationDetail> {
+  return fetchJson<ApplicationDetail>(`/api/applications/${jobId}`);
+}
+
+export async function prepareApplicationPackage(
+  jobId: number
+): Promise<PreparePackageResponse> {
+  return fetchJson<PreparePackageResponse>(`/api/applications/${jobId}/prepare`, {
+    method: "POST",
+  });
+}
+
 export async function getTaskStatus(): Promise<TaskStatus> {
   return fetchJson<TaskStatus>("/api/tasks/status");
 }
+
 

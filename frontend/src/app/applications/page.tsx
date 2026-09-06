@@ -1,22 +1,55 @@
-export default function ApplicationsPage() {
+import { getApplications, getEligibleJobsForPreparation } from "@/lib/api";
+import { ApplicationSummary, JobSummary } from "@/lib/types";
+import ApplicationsClient from "@/components/ApplicationsClient";
+
+export const dynamic = "force-dynamic";
+
+export default async function ApplicationsPage() {
+  let applications: ApplicationSummary[] = [];
+  let eligibleJobs: JobSummary[] = [];
+  let errorMessage: string | null = null;
+
+  try {
+    const [appsRes, eligibleRes] = await Promise.all([
+      getApplications(),
+      getEligibleJobsForPreparation(),
+    ]);
+    applications = appsRes;
+    eligibleJobs = eligibleRes;
+  } catch (err: unknown) {
+    errorMessage =
+      err instanceof Error
+        ? err.message
+        : "Failed to connect to JobAgent FastAPI server";
+  }
+
   return (
     <div>
-      <div className="section-header">
+      {/* Header */}
+      <div className="section-header" style={{ marginBottom: "24px" }}>
         <div>
-          <h1 className="page-title">Applications</h1>
+          <h1 className="page-title">Applications Hub</h1>
           <p className="page-subtitle">
-            Manage prepared application packages and review automation status
+            Inspect prepared application packages, candidate data, and prepare packages for approved jobs
           </p>
         </div>
       </div>
-      <div className="table-container">
-        <div className="empty-state">
-          <div className="empty-state-title">Phase 5 Implementation</div>
-          <div className="empty-state-desc">
-            Applications hub and dedicated application detail page will be enabled in Phase 5.
-          </div>
+
+      {/* Error state */}
+      {errorMessage && (
+        <div className="error-banner">
+          <div className="error-title">Failed to load applications data</div>
+          <div>{errorMessage}</div>
         </div>
-      </div>
+      )}
+
+      {/* Client List */}
+      {!errorMessage && (
+        <ApplicationsClient
+          initialApplications={applications}
+          initialEligibleJobs={eligibleJobs}
+        />
+      )}
     </div>
   );
 }

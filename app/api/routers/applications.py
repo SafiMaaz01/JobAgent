@@ -1,9 +1,21 @@
-"""Applications endpoints for inspecting prepared and submitted application packages."""
+"""Applications endpoints for inspecting prepared packages and preparing applications."""
 import json
+import sqlite3
 from pathlib import Path
 from typing import List
-from fastapi import APIRouter, HTTPException
-from app.api.schemas.application import ApplicationDetail, ApplicationSummary
+from fastapi import APIRouter, Depends, HTTPException
+from app.api.deps import get_db
+from app.api.schemas.application import (
+    ApplicationDetail,
+    ApplicationSummary,
+    PreparePackageResponse,
+)
+from app.api.schemas.job import JobSummary
+from app.application.prepare import (
+    RESUME_FILE,
+    create_application_package,
+    load_answer_bank,
+)
 
 router = APIRouter(prefix="/api/applications", tags=["Applications"])
 
@@ -19,10 +31,16 @@ def check_resume_exists(resume_path_str: str | None) -> bool:
 
 
 @router.get("", response_model=List[ApplicationSummary])
-def list_applications():
+def list_applications(db: sqlite3.Connection = Depends(get_db)):
     """List all application packages found in data/applications/."""
     if not APPLICATIONS_DIR.exists():
         return []
+
+    # Map job_id to review_status from DB
+    db_jobs = {
+        row["id"]: row["review_status"]
+        for row in db.execute("SELECT id, review_status FROM jobs").fetchall()
+    }
 
     summaries = []
     for file in APPLICATIONS_DIR.glob("job_*.json"):
@@ -35,7 +53,6 @@ def list_applications():
 
             job_id = job.get("id")
             if job_id is None:
-                # Try inferring from filename job_<id>.json
                 stem = file.stem.split("_")
                 if len(stem) == 2 and stem[1].isdigit():
                     job_id = int(stem[1])
@@ -57,6 +74,7 @@ def list_applications():
                     location=job.get("location"),
                     match_score=job.get("match_score"),
                     recommendation=job.get("recommendation"),
+                    review_status=db_jobs.get(job_id),
                     application_status=status,
                     has_resume=has_resume,
                     created_at=created_at,
@@ -66,13 +84,64 @@ def list_applications():
         except (json.JSONDecodeError, OSError):
             continue
 
-    # Sort newest first
     summaries.sort(key=lambda item: item.created_at or "", reverse=True)
     return summaries
 
 
+@router.get("/eligible-jobs", response_model=List[JobSummary])
+def list_eligible_jobs_for_preparation(db: sqlite3.Connection = Depends(get_db)):
+    """List all approved jobs eligible for application package preparation."""
+    rows = db.execute(
+        """
+        SELECT
+            id, source, external_id, company, title, location, url,
+            posted_at, updated_at, is_relevant, match_score, recommendation,
+            review_status, reviewed_at, applied_at
+        FROM jobs
+        WHERE review_status = 'approved'
+        ORDER BY id DESC
+        """
+    ).fetchall()
+
+    # Check which ones already have a package
+    app_job_ids = set()
+    if APPLICATIONS_DIR.exists():
+        for file in APPLICATIONS_DIR.glob("job_*.json"):
+            try:
+                parts = file.stem.split("_")
+                if len(parts) == 2 and parts[1].isdigit():
+                    app_job_ids.add(int(parts[1]))
+            except ValueError:
+                continue
+
+    items = []
+    for row in rows:
+        job_id = row["id"]
+        items.append(
+            JobSummary(
+                id=job_id,
+                source=row["source"],
+                external_id=row["external_id"],
+                company=row["company"],
+                title=row["title"],
+                location=row["location"],
+                url=row["url"],
+                posted_at=row["posted_at"],
+                updated_at=row["updated_at"],
+                is_relevant=row["is_relevant"],
+                match_score=row["match_score"],
+                recommendation=row["recommendation"],
+                review_status=row["review_status"],
+                reviewed_at=row["reviewed_at"],
+                applied_at=row["applied_at"],
+                has_application=(job_id in app_job_ids),
+            )
+        )
+    return items
+
+
 @router.get("/{job_id}", response_model=ApplicationDetail)
-def get_application_detail(job_id: int):
+def get_application_detail(job_id: int, db: sqlite3.Connection = Depends(get_db)):
     """Fetch complete application details for a specific job."""
     app_file = APPLICATIONS_DIR / f"job_{job_id}.json"
 
@@ -94,15 +163,17 @@ def get_application_detail(job_id: int):
     job = pkg.get("job", {})
     app_meta = pkg.get("application", {})
     candidate = pkg.get("candidate", {})
+    match_meta = pkg.get("match", {})
 
     status = app_meta.get("status", "unknown")
     resume_path = app_meta.get("resume")
     resume_exists = check_resume_exists(resume_path)
 
-    # Resolved answers: merge answers dict and candidate info if present
+    # Resolved answers: answers dict or candidate QA pairs
     resolved_answers = app_meta.get("answers", {})
     if not resolved_answers and isinstance(candidate, dict):
-        resolved_answers = candidate
+        # Extract direct QA questions if candidate dictionary has them
+        resolved_answers = candidate.get("personal", {})
 
     # Verification and automation status
     verification_meta = pkg.get("verification", {})
@@ -119,6 +190,10 @@ def get_application_detail(job_id: int):
     submission_state = "submitted" if status == "applied" else "pending"
     automation_status = "completed" if status == "applied" else "idle"
 
+    # Query review_status from DB
+    row = db.execute("SELECT review_status FROM jobs WHERE id = ?", (job_id,)).fetchone()
+    db_review_status = row["review_status"] if row else None
+
     return ApplicationDetail(
         job_id=job.get("id", job_id),
         company=job.get("company", "Unknown"),
@@ -126,16 +201,66 @@ def get_application_detail(job_id: int):
         location=job.get("location"),
         match_score=job.get("match_score"),
         recommendation=job.get("recommendation"),
+        review_status=db_review_status,
         job_url=job.get("url", ""),
         job_description=job.get("description"),
         application_status=status,
         resume_path=resume_path,
         resume_exists=resume_exists,
         resolved_answers=resolved_answers,
+        candidate=candidate if isinstance(candidate, dict) else None,
+        match_details=match_meta.get("details"),
         automation_status=automation_status,
         verification_status=verification_status,
         verification_checks=verification_checks,
         submission_state=submission_state,
         created_at=app_meta.get("created_at"),
         applied_at=app_meta.get("applied_at"),
+    )
+
+
+@router.post("/{job_id}/prepare", response_model=PreparePackageResponse)
+def prepare_application_package(job_id: int, db: sqlite3.Connection = Depends(get_db)):
+    """Prepare an application package for an approved job using app.application.prepare."""
+    # 1. Verify job exists
+    job = db.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
+    if job is None:
+        raise HTTPException(status_code=404, detail=f"Job with ID {job_id} not found")
+
+    # 2. Strict safety check: must be approved
+    if job["review_status"] != "approved":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Job #{job_id} ({job['company']}) has status '{job['review_status']}'. Only approved jobs can be prepared.",
+        )
+
+    # 3. Verify resume exists
+    if not RESUME_FILE.exists():
+        raise HTTPException(
+            status_code=400,
+            detail=f"Resume file not found at {RESUME_FILE}. Please ensure resume.pdf exists.",
+        )
+
+    try:
+        answer_bank = load_answer_bank()
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to load answer bank: {str(e)}",
+        )
+
+    # 4. Delegate to authoritative existing function
+    try:
+        output_file = create_application_package(job, answer_bank)
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to create application package: {str(e)}",
+        )
+
+    return PreparePackageResponse(
+        job_id=job_id,
+        status="ready_for_review",
+        message=f"Application package successfully prepared for {job['company']} - {job['title']}",
+        package_file=str(output_file),
     )

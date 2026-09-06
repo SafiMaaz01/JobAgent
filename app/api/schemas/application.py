@@ -10,6 +10,7 @@ class ApplicationSummary(BaseModel):
     location: Optional[str] = None
     match_score: Optional[int] = None
     recommendation: Optional[str] = None
+    review_status: Optional[str] = None
     application_status: str
     has_resume: bool = False
     created_at: Optional[str] = None
@@ -25,12 +26,15 @@ class ApplicationDetail(BaseModel):
     location: Optional[str] = None
     match_score: Optional[int] = None
     recommendation: Optional[str] = None
+    review_status: Optional[str] = None
     job_url: str
     job_description: Optional[str] = None
     application_status: str
     resume_path: Optional[str] = None
     resume_exists: bool = False
     resolved_answers: Dict[str, Any] = {}
+    candidate: Optional[Dict[str, Any]] = None
+    match_details: Optional[Dict[str, Any]] = None
     automation_status: str = "idle"
     verification_status: str = "not_run"
     verification_checks: List[Dict[str, Any]] = []
@@ -39,3 +43,10 @@ class ApplicationDetail(BaseModel):
     applied_at: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class PreparePackageResponse(BaseModel):
+    job_id: int
+    status: str
+    message: str
+    package_file: str
