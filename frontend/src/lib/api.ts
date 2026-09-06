@@ -7,6 +7,7 @@ import {
   JobSummary,
   PreparePackageResponse,
   TaskStatus,
+  TaskActionResponse,
 } from "./types";
 
 const API_BASE_URL =
@@ -131,6 +132,31 @@ export async function prepareApplicationPackage(
 
 export async function getTaskStatus(): Promise<TaskStatus> {
   return fetchJson<TaskStatus>("/api/tasks/status");
+}
+
+export async function startAutofill(jobId: number): Promise<TaskStatus> {
+  return fetchJson<TaskStatus>(`/api/applications/${jobId}/autofill`, {
+    method: "POST",
+  });
+}
+
+export async function respondToTask(
+  action: "confirm" | "cancel" | "input",
+  value?: string
+): Promise<TaskActionResponse> {
+  return fetchJson<TaskActionResponse>("/api/tasks/respond", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ action, value }),
+  });
+}
+
+export async function cancelTask(): Promise<TaskActionResponse> {
+  return fetchJson<TaskActionResponse>("/api/tasks/cancel", {
+    method: "POST",
+  });
 }
 
 

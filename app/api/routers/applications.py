@@ -187,12 +187,24 @@ def get_application_detail(job_id: int, db: sqlite3.Connection = Depends(get_db)
 
     verification_checks = verification_meta.get("checks", [])
 
-    submission_state = "submitted" if status == "applied" else "pending"
-    automation_status = "completed" if status == "applied" else "idle"
+    # Query active automation status
+    from app.api.automation import automation_manager
+    from app.api.routers.tasks import get_task_state
+
+    active_job_id = automation_manager.get_active_job_id()
+    if active_job_id == job_id:
+        active_task = get_task_state()
+        automation_status = active_task.get("status", "running")
+        if active_task.get("details", {}).get("verification_passed"):
+            verification_status = "passed"
+    else:
+        automation_status = "completed" if status == "applied" else "idle"
 
     # Query review_status from DB
     row = db.execute("SELECT review_status FROM jobs WHERE id = ?", (job_id,)).fetchone()
     db_review_status = row["review_status"] if row else None
+
+    submission_state = "submitted" if status == "applied" else "pending"
 
     return ApplicationDetail(
         job_id=job.get("id", job_id),
@@ -264,3 +276,93 @@ def prepare_application_package(job_id: int, db: sqlite3.Connection = Depends(ge
         message=f"Application package successfully prepared for {job['company']} - {job['title']}",
         package_file=str(output_file),
     )
+
+
+@router.post("/{job_id}/autofill")
+def run_application_autofill(job_id: int, db: sqlite3.Connection = Depends(get_db)):
+    """
+    Launch authoritative browser autofill for an approved and prepared application.
+    Enforces validation, duplicate protection, and human confirmation gate.
+    """
+    from app.api.automation import automation_manager
+
+    # 1. Verify job exists in database
+    job = db.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
+    if job is None:
+        raise HTTPException(status_code=404, detail=f"Job with ID {job_id} not found")
+
+    # 2. Strict safety check: must be approved
+    if job["review_status"] != "approved":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot run automation: Job #{job_id} review status is '{job['review_status']}'. Only approved jobs can be autofilled.",
+        )
+
+    # 3. Verify package file exists
+    package_file = APPLICATIONS_DIR / f"job_{job_id}.json"
+    if not package_file.exists():
+        raise HTTPException(
+            status_code=400,
+            detail=f"Application package for Job #{job_id} has not been prepared yet. Please prepare the package first.",
+        )
+
+    # 4. Check application package status
+    try:
+        with open(package_file, "r", encoding="utf-8") as f:
+            pkg_data = json.load(f)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to read application package: {str(e)}")
+
+    pkg_status = pkg_data.get("application", {}).get("status")
+    if pkg_status == "applied":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Application for Job #{job_id} has already been submitted (status: applied).",
+        )
+
+    # 5. Start or return existing automation run
+    result = automation_manager.start_autofill(job_id=job_id, package_path=package_file, job_info=dict(job))
+    return result
+
+
+@router.get("/{job_id}/autofill-status")
+def get_application_autofill_status(job_id: int):
+    """Retrieve live automation and verification status for a specific application."""
+    from app.api.automation import automation_manager
+    from app.api.routers.tasks import get_task_state
+
+    active_job_id = automation_manager.get_active_job_id()
+    if active_job_id == job_id:
+        task_state = get_task_state()
+        return {
+            "is_active": True,
+            "status": task_state.get("status", "running"),
+            "message": task_state.get("message"),
+            "progress": task_state.get("progress", 0),
+            "details": task_state.get("details"),
+        }
+
+    # Check if package exists and its status
+    package_file = APPLICATIONS_DIR / f"job_{job_id}.json"
+    if package_file.exists():
+        try:
+            with open(package_file, "r", encoding="utf-8") as f:
+                pkg_data = json.load(f)
+            pkg_status = pkg_data.get("application", {}).get("status", "unknown")
+            return {
+                "is_active": False,
+                "status": pkg_status,
+                "message": f"Package status: {pkg_status}",
+                "progress": 100 if pkg_status == "applied" else 0,
+                "details": None,
+            }
+        except Exception:
+            pass
+
+    return {
+        "is_active": False,
+        "status": "idle",
+        "message": "No automation run recorded for this job",
+        "progress": 0,
+        "details": None,
+    }

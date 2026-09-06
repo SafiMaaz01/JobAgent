@@ -1,6 +1,6 @@
 """Background tasks polling and status endpoint."""
 from fastapi import APIRouter
-from app.api.schemas.task import TaskStatus
+from app.api.schemas.task import TaskStatus, TaskActionRequest, TaskActionResponse
 
 router = APIRouter(prefix="/api/tasks", tags=["Tasks"])
 
@@ -33,3 +33,19 @@ def update_task_state(status: str, message: str, task: str = None, progress: int
 def get_task_status():
     """Return current background task status for polling."""
     return TaskStatus(**_current_task_state)
+
+
+@router.post("/respond", response_model=TaskActionResponse)
+def respond_to_task(req: TaskActionRequest):
+    """Send interactive response or decision to the active automation task."""
+    from app.api.automation import automation_manager
+    res = automation_manager.respond(action=req.action, value=req.value)
+    return TaskActionResponse(**res)
+
+
+@router.post("/cancel", response_model=TaskActionResponse)
+def cancel_task():
+    """Cancel any active background automation task."""
+    from app.api.automation import automation_manager
+    res = automation_manager.cancel()
+    return TaskActionResponse(**res)

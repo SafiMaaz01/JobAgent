@@ -58,12 +58,31 @@ export interface JobListResponse {
   pages: number;
 }
 
+export interface AutomationTaskDetails {
+  job_id?: number;
+  company?: string;
+  role?: string;
+  stage?: string;
+  verification_passed?: boolean | null;
+  recent_logs?: string[];
+  started_at?: string;
+  updated_at?: string;
+  input_prompt?: string;
+  exit_code?: number;
+  [key: string]: unknown;
+}
+
 export interface TaskStatus {
   task: string | null;
-  status: string;
+  status: string; // "idle" | "running" | "waiting_for_confirmation" | "waiting_for_input" | "completed" | "cancelled" | "error"
   message: string;
   progress: number;
-  details: Record<string, unknown> | null;
+  details: AutomationTaskDetails | null;
+}
+
+export interface TaskActionResponse {
+  success: boolean;
+  message: string;
 }
 
 export interface ReviewResponse {
