@@ -1,3 +1,10 @@
+/**
+ * Jobs Directory Page (Server Component).
+ * 
+ * Parses URL search parameters for filtering (query string, review status,
+ * recommendation, minimum match score, pagination), fetches matching records
+ * from FastAPI, and renders the interactive table and inspection drawer.
+ */
 import { getJobs, JobFilterParams } from "@/lib/api";
 import JobsFilterBar from "@/components/JobsFilterBar";
 import JobsTableWithDrawer from "@/components/JobsTableWithDrawer";
@@ -9,6 +16,7 @@ interface JobsPageProps {
 }
 
 export default async function JobsPage({ searchParams }: JobsPageProps) {
+
   const resolvedParams = await searchParams;
 
   const page = parseInt(

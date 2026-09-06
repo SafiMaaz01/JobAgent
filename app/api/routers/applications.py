@@ -1,4 +1,14 @@
-"""Applications endpoints for inspecting prepared packages and preparing applications."""
+"""
+Applications endpoints for inspecting, preparing, and automating job application packages.
+
+This router manages the authoritative application pipeline:
+1. `GET /api/applications`: Lists all prepared application packages from `data/applications/`.
+2. `GET /api/applications/eligible-jobs`: Finds approved jobs in SQLite that are ready for package creation.
+3. `GET /api/applications/{job_id}`: Retrieves complete package details, candidate profile, and questionnaire answers.
+4. `POST /api/applications/{job_id}/prepare`: Generates package JSON using authoritative `app.application.prepare`.
+5. `POST /api/applications/{job_id}/autofill`: Triggers authoritative Playwright autofill runner with single concurrency.
+6. `GET /api/applications/{job_id}/autofill-status`: Live status tracking for active automation runs.
+"""
 import json
 import sqlite3
 from pathlib import Path
@@ -19,11 +29,15 @@ from app.application.prepare import (
 
 router = APIRouter(prefix="/api/applications", tags=["Applications"])
 
+# Directory where application packages are stored as JSON files
 APPLICATIONS_DIR = Path("data/applications")
 
 
 def check_resume_exists(resume_path_str: str | None) -> bool:
-    """Check if resume file actually exists on filesystem."""
+    """
+    Check if the specified resume file exists on the local filesystem.
+    Returns True if present and accessible, False otherwise.
+    """
     if not resume_path_str:
         return False
     path = Path(resume_path_str)

@@ -1,4 +1,12 @@
-"""Jobs endpoints for querying and inspecting jobs."""
+"""
+Jobs endpoints for querying, filtering, inspecting, and reviewing jobs.
+
+This router provides:
+1. `GET /api/jobs`: Paginated search, sorting, and multi-criteria filtering over SQLite `jobs`.
+2. `GET /api/jobs/review/queue`: Fetches pending jobs eligible for review using authoritative `app.approval.review`.
+3. `POST /api/jobs/{id}/review`: Approves or rejects a job, updating review timestamps and state.
+4. `GET /api/jobs/{id}`: Detailed view including raw descriptions and AI match breakdown.
+"""
 import json
 import sqlite3
 from pathlib import Path
@@ -16,11 +24,15 @@ from app.approval.review import get_jobs_for_review, update_review_status
 
 router = APIRouter(prefix="/api/jobs", tags=["Jobs"])
 
+# Directory where prepared application packages reside
 APPLICATIONS_DIR = Path("data/applications")
 
 
 def parse_match_details_json(raw: Optional[str]) -> Optional[dict]:
-    """Parse JSON match details string safely into a dict."""
+    """
+    Parse JSON match details string safely into a dict.
+    Returns None if empty or if invalid JSON formatting is encountered.
+    """
     if not raw:
         return None
     try:

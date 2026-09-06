@@ -1,3 +1,10 @@
+/**
+ * Dedicated Application Detail & Automation Page (Server Component).
+ * 
+ * Loads complete application package details for a specific job ID
+ * (candidate data, resolved answers, resume path, match details, verification checks)
+ * and passes them to the interactive ApplicationDetailClient.
+ */
 import { notFound } from "next/navigation";
 import { getApplicationDetail } from "@/lib/api";
 import { ApplicationDetail } from "@/lib/types";
@@ -10,6 +17,7 @@ interface ApplicationDetailPageProps {
 }
 
 export default async function ApplicationDetailPage({
+
   params,
 }: ApplicationDetailPageProps) {
   const resolvedParams = await params;

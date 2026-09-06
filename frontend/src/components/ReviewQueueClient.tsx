@@ -1,7 +1,14 @@
 "use client";
 
+/**
+ * Interactive client component for the Human Review Queue.
+ * 
+ * Displays pending jobs recommended by AI and allows the candidate to
+ * approve (to move to application package preparation) or reject them.
+ */
 import { useState } from "react";
 import { JobDetail } from "@/lib/types";
+
 import { submitReview, getReviewQueue } from "@/lib/api";
 import { MatchScoreBadge, RecommendationBadge } from "./StatusBadge";
 

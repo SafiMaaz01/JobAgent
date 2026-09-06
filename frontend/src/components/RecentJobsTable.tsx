@@ -1,3 +1,6 @@
+/**
+ * Table displaying recent high-scoring job matches on the overview dashboard.
+ */
 import { JobSummary } from "@/lib/types";
 import {
   MatchScoreBadge,
@@ -10,6 +13,7 @@ interface RecentJobsTableProps {
 }
 
 export default function RecentJobsTable({ jobs }: RecentJobsTableProps) {
+
   if (!jobs || jobs.length === 0) {
     return (
       <div className="table-container">

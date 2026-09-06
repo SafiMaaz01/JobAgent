@@ -1,3 +1,9 @@
+"""Deterministic rule-based job relevance filter.
+
+Applies fast regex and keyword heuristic checks (role matching, experience limits,
+seniority exclusions, geographic relevance) to job postings collected from external
+sources before passing them to the more computationally expensive LLM matcher.
+"""
 import re
 
 
@@ -5,7 +11,12 @@ MAX_EXPERIENCE_YEARS = 1
 
 
 def extract_experience_requirement(text):
+    """
+    Extract required years of experience from job descriptions using regex patterns.
+    Returns the maximum required years found or None if unstated.
+    """
     if not text:
+
         return None
 
     text = text.lower()

@@ -1,6 +1,13 @@
+/**
+ * Badge components for visual status indicators across tables, cards, and drawers.
+ * 
+ * Provides color-coded badges for review status (pending, approved, applied, rejected),
+ * match score ranges (high, medium, low), and recommendation directives (APPLY, PASS).
+ */
 interface StatusBadgeProps {
   status: string;
 }
+
 
 export function ReviewStatusBadge({ status }: StatusBadgeProps) {
   const normalized = (status || "pending").toLowerCase();

@@ -1,3 +1,11 @@
+/**
+ * Data contracts and TypeScript interfaces for the JobAgent Next.js frontend.
+ * 
+ * These types match the FastAPI REST backend schemas exactly, enabling end-to-end
+ * type safety without requiring SQLite or Python dependencies in the client bundle.
+ */
+
+/** High-level metrics displayed on the main dashboard */
 export interface DashboardStats {
   total_jobs: number;
   relevant_jobs: number;
@@ -10,6 +18,7 @@ export interface DashboardStats {
   avg_match_score: number;
 }
 
+/** Lightweight job summary for tables, queues, and directories */
 export interface JobSummary {
   id: number;
   source: string;
@@ -29,6 +38,7 @@ export interface JobSummary {
   has_application: boolean;
 }
 
+/** Structured output from the local AI evaluation model */
 export interface MatchDetails {
   match_score?: number;
   recommendation?: string;
@@ -43,6 +53,7 @@ export interface MatchDetails {
   [key: string]: unknown;
 }
 
+/** Complete job details including description and AI reasoning */
 export interface JobDetail extends JobSummary {
   description?: string | null;
   matched_at?: string | null;
@@ -50,6 +61,7 @@ export interface JobDetail extends JobSummary {
   application_status?: string | null;
 }
 
+/** Paginated job query result */
 export interface JobListResponse {
   items: JobSummary[];
   total: number;
@@ -57,6 +69,7 @@ export interface JobListResponse {
   limit: number;
   pages: number;
 }
+
 
 export interface AutomationTaskDetails {
   job_id?: number;

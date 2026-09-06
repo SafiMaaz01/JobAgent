@@ -1,3 +1,10 @@
+/**
+ * JobAgent Frontend API Client.
+ * 
+ * Provides type-safe wrapper functions around the FastAPI REST API.
+ * Uses native fetch with `cache: "no-store"` to ensure the UI always displays
+ * real-time, authoritative SQLite state without stale client caching.
+ */
 import {
   ApplicationDetail,
   ApplicationSummary,
@@ -11,9 +18,14 @@ import {
   Profile,
 } from "./types";
 
+// Base URL defaulting to local FastAPI instance
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000";
 
+/**
+ * Generic HTTP fetch helper that handles JSON deserialization, error wrapping,
+ * and cache invalidation.
+ */
 async function fetchJson<T>(endpoint: string, options?: RequestInit): Promise<T> {
   const url = `${API_BASE_URL}${endpoint}`;
   try {
@@ -41,9 +53,11 @@ async function fetchJson<T>(endpoint: string, options?: RequestInit): Promise<T>
   }
 }
 
+/** Fetches dashboard KPI counts (total, relevant, pending, approved, applied, packages). */
 export async function getDashboardStats(): Promise<DashboardStats> {
   return fetchJson<DashboardStats>("/api/stats");
 }
+
 
 export interface JobFilterParams {
   status?: string;

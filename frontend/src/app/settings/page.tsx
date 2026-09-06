@@ -1,9 +1,16 @@
+/**
+ * Profile & Settings Page (Server Component).
+ * 
+ * Reads the authoritative candidate profile from data/profile.json via FastAPI
+ * and renders SettingsClient for safe, atomic field editing and validation.
+ */
 import { getProfile } from "@/lib/api";
 import SettingsClient from "@/components/SettingsClient";
 
 export const dynamic = "force-dynamic";
 
 export default async function SettingsPage() {
+
   let profile;
   try {
     profile = await getProfile();

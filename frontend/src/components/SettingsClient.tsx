@@ -1,7 +1,18 @@
 "use client";
 
+/**
+ * Interactive client component for managing Candidate Profile & Application Settings.
+ * 
+ * Features:
+ * - Personal contact information
+ * - Target roles, skills tags, and preferred locations management
+ * - Employment preferences (hybrid/remote, relocation, 5-day office, minimum salary)
+ * - Work experience and education entry management
+ * - Dirty state detection and atomic PUT /api/config/profile persistence
+ */
 import { useState } from "react";
 import { Profile } from "@/lib/types";
+
 import { updateProfile } from "@/lib/api";
 
 interface SettingsClientProps {

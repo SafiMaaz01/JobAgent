@@ -1,9 +1,20 @@
-"""Application schemas focusing on jobs, answers, resume, verification, and status."""
+"""Application schemas focusing on jobs, answers, resume, verification, and status.
+
+These models define data transfer objects for the Applications Hub (/api/applications)
+and dedicated application detail (/api/applications/{job_id}), tracking package
+readiness, resolved candidate answers, resume verification, and automation runner state.
+"""
 from typing import Optional, Any, Dict, List
 from pydantic import BaseModel, ConfigDict
 
 
 class ApplicationSummary(BaseModel):
+    """
+    Summary view of an application package used on the Applications Hub page.
+    
+    Provides job identity, match recommendation, current application package status
+    (e.g., 'prepared', 'pending_preparation', 'applied'), and resume availability.
+    """
     job_id: int
     company: str
     title: str
@@ -20,6 +31,12 @@ class ApplicationSummary(BaseModel):
 
 
 class ApplicationDetail(BaseModel):
+    """
+    Comprehensive detail model for a single application (/api/applications/{job_id}).
+    
+    Supplies all data needed for candidate review, form autofill inspection,
+    custom question-answering resolution, resume path checks, and live browser automation.
+    """
     job_id: int
     company: str
     role: str
@@ -46,7 +63,11 @@ class ApplicationDetail(BaseModel):
 
 
 class PreparePackageResponse(BaseModel):
+    """
+    Response returned when triggering package preparation via POST /api/applications/{id}/prepare.
+    """
     job_id: int
     status: str
     message: str
     package_file: str
+

@@ -1,3 +1,9 @@
+"""Greenhouse Job Collector.
+
+Fetches open roles across target company Greenhouse job boards defined in
+data/sources.json, normalizes data models, runs initial deterministic filtering,
+and safely inserts or updates records in the SQLite database.
+"""
 import json
 from pathlib import Path
 
@@ -12,12 +18,15 @@ SOURCES_FILE = Path("data/sources.json")
 
 
 def load_sources():
+    """Load target company board tokens from data/sources.json."""
     with open(SOURCES_FILE, "r", encoding="utf-8") as f:
         return json.load(f)
 
 
 def get_greenhouse_jobs(board_token: str):
+    """Fetch all open job listings including full descriptions for a Greenhouse board token."""
     url = f"https://boards-api.greenhouse.io/v1/boards/{board_token}/jobs"
+
 
     response = requests.get(
         url,

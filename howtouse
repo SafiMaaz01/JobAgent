@@ -1,0 +1,336 @@
+# JobAgent — Complete How to Use Guide & Workflow Manual
+
+Welcome to **JobAgent**, a local-first, privacy-respecting AI job application assistant. JobAgent automates job collection, deterministic filtering, local AI matching, application package preparation, and browser autofill while keeping all critical approval and submission decisions in human hands.
+
+---
+
+## Table of Contents
+1. [Architecture Overview](#1-architecture-overview)
+2. [Prerequisites & System Requirements](#2-prerequisites--system-requirements)
+3. [Step-by-Step Setup from Scratch](#3-step-by-step-setup-from-scratch)
+4. [Data & Profile Configuration](#4-data--profile-configuration)
+5. [Complete End-to-End Workflow & Commands](#5-complete-end-to-end-workflow--commands)
+   - [Step 1: Initialize the Database](#step-1-initialize-the-database)
+   - [Step 2: Collect Jobs from Sources](#step-2-collect-jobs-from-sources)
+   - [Step 3: Run Local AI Matcher](#step-3-run-local-ai-matcher)
+   - [Step 4: Launch the FastAPI Backend](#step-4-launch-the-fastapi-backend)
+   - [Step 5: Launch the Next.js Frontend Dashboard](#step-5-launch-the-nextjs-frontend-dashboard)
+   - [Step 6: Review, Prepare, Autofill, and Verify via UI](#step-6-review-prepare-autofill-and-verify-via-ui)
+6. [CLI Workflow Alternatives](#6-cli-workflow-alternatives)
+7. [Comprehensive Troubleshooting Guide](#7-comprehensive-troubleshooting-guide)
+
+---
+
+## 1. Architecture Overview
+
+JobAgent runs completely on your local machine:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    Next.js Web Dashboard                    │
+│            http://localhost:3000 (App Router)               │
+│  - Dashboard: System metrics, match scores, recent jobs     │
+│  - Review Queue: Approve / Reject pending jobs              │
+│  - Jobs Directory: Search, filter, and detail drawer        │
+│  - Applications Hub: Packages, preparation, autofill runner │
+│  - Settings: Candidate profile and matching configuration   │
+└──────────────────────────┬──────────────────────────────────┘
+                           │ HTTP REST (Native Fetch, No SQLite)
+┌──────────────────────────▼──────────────────────────────────┐
+│                    FastAPI Backend Layer                    │
+│                http://127.0.0.1:8000                        │
+│  - Reads SQLite (data/jobs.db)                              │
+│  - Interacts with Ollama (Local AI)                         │
+│  - Manages background automation tasks & single-concurrency │
+│  - Writes profile atomically (data/profile.json)            │
+└──────────────────────────┬──────────────────────────────────┘
+                           │ Subprocess execution
+┌──────────────────────────▼──────────────────────────────────┐
+│              Playwright Browser Automation                  │
+│  - Non-headless Chromium window on user desktop             │
+│  - Uploads resume PDF & fills candidate fields              │
+│  - Answers custom Greenhouse questions                      │
+│  - Verifies form state & pauses at READY TO SUBMIT gate     │
+│  - Strictly requires human confirmation before submitting   │
+└─────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 2. Prerequisites & System Requirements
+
+Before starting, ensure you have the following installed on your machine:
+- **Operating System**: Windows 10/11, macOS, or Linux.
+- **Python**: Version **3.11** or higher (`python --version`).
+- **Node.js**: Version **18.18** or higher (`node --version`).
+- **Ollama**: Local AI runner ([https://ollama.com](https://ollama.com)).
+  - Model required: `qwen2.5:7b` (or your configured model).
+- **Git**: Installed and available in PATH.
+
+---
+
+## 3. Step-by-Step Setup from Scratch
+
+Follow these steps from a fresh clone of the repository.
+
+### A. Clone the Repository
+```bash
+git clone https://github.com/SafiMaaz01/JobAgent.git
+cd JobAgent
+```
+
+### B. Setup Python Virtual Environment
+Open PowerShell or your terminal in the `JobAgent` root directory:
+
+```powershell
+# Create virtual environment
+python -m venv .venv
+
+# Activate virtual environment on Windows PowerShell
+.\.venv\Scripts\Activate.ps1
+
+# (If on Windows Command Prompt: .venv\Scripts\activate.bat)
+# (If on macOS/Linux: source .venv/bin/activate)
+```
+
+### C. Install Python Dependencies
+```powershell
+pip install --upgrade pip
+pip install -r requirements.txt
+```
+
+### D. Install Playwright Chromium Browser
+Playwright requires the Chromium binary to launch visible automation windows:
+
+```powershell
+playwright install chromium
+```
+
+### E. Setup and Start Ollama Local AI
+Make sure Ollama is installed and running on your system:
+
+```powershell
+# In a separate terminal or background, start Ollama:
+ollama serve
+
+# Pull the Qwen 2.5 7B model used by the matcher:
+ollama pull qwen2.5:7b
+```
+
+### F. Install Frontend Next.js Dependencies
+Navigate to the `frontend/` directory and install the packages:
+
+```powershell
+cd frontend
+npm install
+cd ..
+```
+
+---
+
+## 4. Data & Profile Configuration
+
+JobAgent stores all user data and configurations in the `data/` folder:
+
+| File Path | Description | Required? |
+| :--- | :--- | :--- |
+| `data/profile.json` | Candidate profile (name, contact, skills, education, experience, target roles). | **Yes** |
+| `data/resume.pdf` | Candidate resume file uploaded during browser autofill. | **Yes** |
+| `data/sources.json` | Greenhouse job board endpoints and company sources. | **Yes** |
+| `data/answers.json` | Question-answer mapping and default candidate responses. | **Yes** |
+| `data/application_answers.json` | Saved application answer bank for custom questions. | **Yes** |
+| `data/jobs.db` | SQLite database storing jobs, match evaluations, and review statuses. | Auto-created |
+
+> **Important**: Ensure your resume is saved as `data/resume.pdf` (or `data/resume/resume.pdf`).
+
+---
+
+## 5. Complete End-to-End Workflow & Commands
+
+Here is the exact step-by-step sequence to run the entire JobAgent system:
+
+### Step 1: Initialize the Database
+Creates the SQLite tables in `data/jobs.db`:
+
+```powershell
+python -m app.database.init_db
+```
+
+### Step 2: Collect Jobs from Sources
+Fetches open positions from configured Greenhouse job boards:
+
+```powershell
+python -m app.jobs.greenhouse
+```
+*Output: Discovered jobs are parsed and inserted into `data/jobs.db` with duplicate filtering.*
+
+### Step 3: Run Local AI Matcher
+Scores each collected job against your `data/profile.json` using Ollama (`qwen2.5:7b`):
+
+```powershell
+python -m app.job_matcher
+```
+*Output: Scores jobs 0–100, assigns recommendations (`APPLY` / `SKIP`), identifies strengths and gaps, and queues relevant jobs with score $\ge 70$ into the review queue.*
+
+### Step 4: Launch the FastAPI Backend
+Start the FastAPI server on port 8000:
+
+```powershell
+# In your main terminal (with .venv active):
+python run_api.py
+```
+*The API is now live at `http://127.0.0.1:8000` (Swagger UI available at `http://127.0.0.1:8000/docs`).*
+
+### Step 5: Launch the Next.js Frontend Dashboard
+Open a **second terminal**, navigate to `frontend/`, and start the Next.js development or production server:
+
+```powershell
+cd frontend
+
+# Development mode (with hot reloading):
+npm run dev
+
+# OR Production mode (fastest load times):
+npm run build
+npm run start
+```
+*The dashboard is now live at `http://localhost:3000`.*
+
+### Step 6: Review, Prepare, Autofill, and Verify via UI
+
+1. **Dashboard (`http://localhost:3000`)**:
+   - View top KPIs: Total Jobs, Relevant Jobs, Pending Review, Approved, Applied, and Average Match Score.
+   - Inspect highest-scoring job matches.
+2. **Review Queue (`http://localhost:3000/review`)**:
+   - Review pending jobs scoring $\ge 70$.
+   - Read the AI reasoning, strong matches, and missing requirements.
+   - Click **Approve** (moves to eligible preparation queue) or **Reject**.
+3. **Jobs Directory (`http://localhost:3000/jobs`)**:
+   - Search by role or company. Filter by match score or review status.
+   - Click any row to open the complete Job Details drawer.
+4. **Applications Hub (`http://localhost:3000/applications`)**:
+   - Under "Approved Jobs Awaiting Package Preparation", click **Prepare Package**.
+   - The authoritative Python preparation logic creates `data/applications/job_<id>.json`.
+   - The prepared package appears under "Active Application Packages".
+5. **Application Details & Runner (`http://localhost:3000/applications/[id]`)**:
+   - Click **Inspect** on any prepared package.
+   - Verify candidate contact info, attached resume, and 7+ mapped questionnaire answers.
+   - Click **▶ Run Autofill**.
+   - Watch the real-time progress bar and live terminal logs as Playwright fills the form.
+   - When verified, the browser pauses at the **READY TO SUBMIT** human gate.
+   - Inspect the open Chromium window on your screen.
+   - Click **Cancel & Close Browser** to exit safely, or confirm in terminal to submit.
+6. **Settings & Profile Management (`http://localhost:3000/settings`)**:
+   - Edit your personal information, target roles, preferred locations, salary, notice period, or skills.
+   - Click **Save Changes** to atomically persist updates to `data/profile.json`.
+
+---
+
+## 6. CLI Workflow Alternatives
+
+If you prefer running individual stages directly from the command line without the web browser:
+
+### CLI Human Review
+Interactively approve or reject matched jobs in the terminal:
+```powershell
+python -m app.approval.cli_review
+```
+
+### CLI Application Package Preparation
+Generate an application package for an approved job:
+```powershell
+python -m app.application.prepare
+```
+
+### Standalone Browser Autofill
+Run Playwright autofill directly with interactive console selection:
+```powershell
+python -m app.browser.autofill_application
+```
+
+---
+
+## 7. Comprehensive Troubleshooting Guide
+
+### Issue 1: "Could not connect to Ollama / Connection refused"
+- **Cause**: Ollama is not running or the model is not downloaded.
+- **Fix**:
+  ```powershell
+  # Check if Ollama is running:
+  curl http://localhost:11434
+
+  # If not running, start Ollama:
+  ollama serve
+
+  # Verify the model is downloaded:
+  ollama list
+  ollama pull qwen2.5:7b
+  ```
+
+### Issue 2: Playwright Error: "Executable doesn't exist at ..."
+- **Cause**: Chromium browser binaries have not been downloaded.
+- **Fix**:
+  ```powershell
+  playwright install chromium
+  ```
+
+### Issue 3: Port Conflict: "Address already in use (8000 or 3000)"
+- **Cause**: A previous FastAPI or Next.js instance is still running in the background.
+- **Fix (Windows PowerShell)**:
+  ```powershell
+  # Find and kill process on port 8000 (FastAPI):
+  Get-NetTCPConnection -LocalPort 8000 -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force }
+
+  # Find and kill process on port 3000 (Next.js):
+  Get-NetTCPConnection -LocalPort 3000 -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force }
+  ```
+
+### Issue 4: Resume File Missing: "Resume file not found at data/resume.pdf"
+- **Cause**: `app/application/prepare.py` requires a valid PDF resume to attach to packages.
+- **Fix**:
+  - Place your resume at `data/resume.pdf` or `data/resume/resume.pdf`.
+  - Verify it exists:
+    ```powershell
+    Test-Path data\resume.pdf
+    ```
+
+### Issue 5: SQLite Database Locked: "database is locked"
+- **Cause**: Multiple write operations accessed SQLite concurrently without closing transactions.
+- **Fix**:
+  - The FastAPI backend uses `check_same_thread=False` and short-lived scoped connections to prevent this.
+  - If a CLI script hung, kill any orphaned Python processes:
+    ```powershell
+    Get-Process python -ErrorAction SilentlyContinue | Stop-Process -Force
+    ```
+
+### Issue 6: Next.js Hydration Warning / Locale Mismatch
+- **Cause**: Using client-side locale methods like `toLocaleDateString()` inside Server Components.
+- **Fix**:
+  - JobAgent avoids non-deterministic locale formatting and uses ISO string parsing (`created_at.split('T')[0]`).
+  - Re-run `npm run build` in `frontend/` to confirm zero errors.
+
+### Issue 7: Python UTF-8 Pipe Error on Windows
+- **Cause**: Windows console default code page (CP1252) failing on unicode arrow characters (`→`) in pipes.
+- **Fix**:
+  - Subprocess execution in `app/api/automation.py` explicitly enforces `encoding="utf-8"` and `errors="replace"`.
+  - Python scripts are invoked with unbuffered binary output (`python -u`).
+
+---
+
+## 8. Summary of All Essential Commands Cheat Sheet
+
+```powershell
+# 1. Environment Activation
+.\.venv\Scripts\Activate.ps1
+
+# 2. Daily Job Pipeline
+python -m app.jobs.greenhouse        # Collect new postings
+python -m app.job_matcher           # Score and match with local AI
+
+# 3. Start Backend Server (Terminal 1)
+python run_api.py
+
+# 4. Start Frontend Server (Terminal 2)
+cd frontend
+npm run dev                         # Or npm run start
+```

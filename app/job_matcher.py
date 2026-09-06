@@ -1,3 +1,9 @@
+"""Local AI Job Matcher.
+
+Evaluates job descriptions against the candidate's profile in data/profile.json
+using a local LLM hosted via Ollama (e.g., qwen2.5:7b). Produces structured match
+assessments with score (0-100), recommendation (APPLY / PASS), and detailed reasoning.
+"""
 import json
 import requests
 from pathlib import Path
@@ -10,12 +16,15 @@ PROFILE_FILE = Path("data/profile.json")
 
 
 def load_profile():
+    """Load candidate profile information from data/profile.json."""
     with open(PROFILE_FILE, "r", encoding="utf-8") as f:
         return json.load(f)
 
 
 def ask_ai(prompt: str) -> str:
+    """Send an inference query to local Ollama instance and return raw response string."""
     response = requests.post(
+
         OLLAMA_URL,
         json={
             "model": MODEL,

@@ -1,7 +1,17 @@
 "use client";
 
+/**
+ * Interactive client component for inspecting application packages and controlling browser automation.
+ * 
+ * Features:
+ * - Candidate profile & resolved answer bank preview
+ * - Automation runner panel with Start Autofill trigger
+ * - Real-time task polling and terminal log stream
+ * - Interactive Ready to Submit gate with human confirmation (Confirm / Cancel)
+ */
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
+
 import { ApplicationDetail, TaskStatus } from "@/lib/types";
 import { startAutofill, getTaskStatus, cancelTask, respondToTask, getApplicationDetail } from "@/lib/api";
 import { MatchScoreBadge, RecommendationBadge, ReviewStatusBadge } from "./StatusBadge";

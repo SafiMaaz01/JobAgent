@@ -1,5 +1,11 @@
 "use client";
 
+/**
+ * Main application sidebar navigation component.
+ * 
+ * Provides persistent navigation between Dashboard, Review Queue,
+ * Jobs Directory, Applications Hub, and Settings with active link highlighting.
+ */
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
@@ -16,6 +22,7 @@ const NAV_ITEMS: NavItem[] = [
   { name: "Applications", href: "/applications", icon: "📝" },
   { name: "Settings", href: "/settings", icon: "⚙" },
 ];
+
 
 export default function Sidebar() {
   const pathname = usePathname();

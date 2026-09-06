@@ -1,7 +1,12 @@
 "use client";
 
+/**
+ * Interactive jobs table supporting row selection, slide-over detail drawer,
+ * and paginated navigation for the Jobs Directory.
+ */
 import { useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+
 import { JobSummary } from "@/lib/types";
 import {
   MatchScoreBadge,

@@ -1,7 +1,14 @@
 "use client";
 
+/**
+ * Slide-over drawer component for inspecting complete job details.
+ * 
+ * Renders full company data, job description, match score, recommendation,
+ * and AI analysis (strong matches, missing requirements, concerns, model reasoning).
+ */
 import { useEffect, useState } from "react";
 import { JobDetail } from "@/lib/types";
+
 import { getJobDetail } from "@/lib/api";
 import {
   MatchScoreBadge,

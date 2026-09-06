@@ -1,3 +1,10 @@
+/**
+ * Review Queue Page (Server Component).
+ * 
+ * Fetches all jobs recommended for application by the AI matcher that currently
+ * await human review (status = 'pending'). Provides interactive approve/reject actions
+ * through ReviewQueueClient.
+ */
 import { getReviewQueue } from "@/lib/api";
 import { JobDetail } from "@/lib/types";
 import ReviewQueueClient from "@/components/ReviewQueueClient";
@@ -5,6 +12,7 @@ import ReviewQueueClient from "@/components/ReviewQueueClient";
 export const dynamic = "force-dynamic";
 
 export default async function ReviewPage() {
+
   let jobs: JobDetail[] = [];
   let errorMessage: string | null = null;
 

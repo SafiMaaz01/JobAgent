@@ -1,3 +1,10 @@
+/**
+ * Applications Hub Page (Server Component).
+ * 
+ * Fetches all existing application packages (from data/applications/) and all
+ * approved jobs awaiting package preparation. Renders ApplicationsClient with
+ * package preparation triggers and deep links to inspection details.
+ */
 import { getApplications, getEligibleJobsForPreparation } from "@/lib/api";
 import { ApplicationSummary, JobSummary } from "@/lib/types";
 import ApplicationsClient from "@/components/ApplicationsClient";
@@ -5,6 +12,7 @@ import ApplicationsClient from "@/components/ApplicationsClient";
 export const dynamic = "force-dynamic";
 
 export default async function ApplicationsPage() {
+
   let applications: ApplicationSummary[] = [];
   let eligibleJobs: JobSummary[] = [];
   let errorMessage: string | null = null;

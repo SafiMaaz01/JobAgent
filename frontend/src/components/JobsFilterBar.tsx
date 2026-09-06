@@ -1,9 +1,16 @@
 "use client";
 
+/**
+ * Filter toolbar for the Jobs Directory.
+ * 
+ * Synchronizes search query, status dropdown, recommendation filter, and minimum score
+ * directly to the URL query string so filtered views are bookmarkable and shareable.
+ */
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useTransition } from "react";
 
 export default function JobsFilterBar() {
+
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();

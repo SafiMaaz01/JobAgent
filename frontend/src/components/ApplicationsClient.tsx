@@ -1,7 +1,15 @@
 "use client";
 
+/**
+ * Client component for the Applications Hub.
+ * 
+ * Manages two sections:
+ * 1. Approved Jobs Ready to Prepare (calls POST /api/applications/{id}/prepare)
+ * 2. Active Application Packages (with status indicators, launcher triggers, and detail links)
+ */
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
+
 import { ApplicationSummary, JobSummary, TaskStatus } from "@/lib/types";
 import {
   prepareApplicationPackage,

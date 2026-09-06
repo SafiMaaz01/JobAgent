@@ -1,10 +1,19 @@
+/**
+ * Main JobAgent Overview Dashboard (Server Component).
+ * 
+ * Fetches real-time telemetry from FastAPI including pipeline counts,
+ * review backlogs, and recent high-scoring matches. Renders server-side
+ * with zero client JavaScript overhead for initial page load.
+ */
 import { getDashboardStats, getRecentHighScoringJobs } from "@/lib/api";
 import MetricCard from "@/components/MetricCard";
 import RecentJobsTable from "@/components/RecentJobsTable";
 
+// Disable Next.js data caching so every reload reflects fresh SQLite database state
 export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
+
   let stats;
   let jobsData;
   let errorMessage: string | null = null;

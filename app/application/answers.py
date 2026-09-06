@@ -1,3 +1,9 @@
+"""Persistent answer bank for custom application questions.
+
+Caches user answers to common Greenhouse and application form questions
+(e.g., salary expectations, sponsorship requirements, notice periods) in data/answers.json
+to avoid re-prompting the candidate across different applications.
+"""
 import json
 from pathlib import Path
 
@@ -12,6 +18,7 @@ def normalize_question(question: str) -> str:
     do not create duplicate answers.
     """
     return " ".join(question.lower().strip().split())
+
 
 
 def load_answers() -> dict:

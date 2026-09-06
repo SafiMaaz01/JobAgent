@@ -1,9 +1,16 @@
+/**
+ * KPI Metric Card Component.
+ * 
+ * Displays a single numerical metric or summary statistic with label,
+ * badge, and explanatory subtext on the dashboard.
+ */
 interface MetricCardProps {
   label: string;
   value: number | string;
   subText?: string;
   badge?: string;
 }
+
 
 export default function MetricCard({
   label,

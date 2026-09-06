@@ -1,5 +1,11 @@
+/**
+ * Top navigation bar component.
+ * 
+ * Displays active workspace branding and local backend connectivity status indicator.
+ */
 export default function Header() {
   return (
+
     <header className="header">
       <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
         <span style={{ fontSize: "12px", color: "var(--text-muted)", fontWeight: "500" }}>

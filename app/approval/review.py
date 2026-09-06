@@ -1,3 +1,10 @@
+"""Human review and approval workflow for matched jobs.
+
+This module retrieves jobs recommended for application by the AI matcher
+(is_relevant=1, recommendation='APPLY', review_status='pending') and updates their
+status to 'approved' or 'rejected'. It powers both the interactive CLI review tool
+and the Next.js Review Queue API.
+"""
 import json
 from datetime import datetime
 
@@ -5,6 +12,11 @@ from app.database.db import get_connection, initialize_database
 
 
 def get_jobs_for_review():
+    """
+    Fetch all relevant jobs that have recommendation='APPLY' and review_status='pending'.
+    
+    Ordered by match_score descending so highest priority opportunities appear first.
+    """
     connection = get_connection()
 
     rows = connection.execute(
@@ -32,7 +44,10 @@ def get_jobs_for_review():
     return rows
 
 
-def update_review_status(job_id, status):
+def update_review_status(job_id: int, status: str):
+    """
+    Persist human review status decision ('approved' or 'rejected') and record timestamp.
+    """
     connection = get_connection()
 
     connection.execute(
@@ -55,9 +70,13 @@ def update_review_status(job_id, status):
 
 
 def parse_match_details(job):
+    """
+    Safely parse the JSON match_details column from a job record.
+    """
     raw_details = job["match_details"]
 
     if not raw_details:
+
         return {}
 
     try:
