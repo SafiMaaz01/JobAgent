@@ -117,6 +117,7 @@ export interface ApplicationSummary {
   has_resume: boolean;
   created_at: string | null;
   applied_at: string | null;
+  submission_source?: string | null;
 }
 
 export interface ApplicationDetail {
@@ -141,6 +142,17 @@ export interface ApplicationDetail {
   submission_state: string;
   created_at?: string | null;
   applied_at?: string | null;
+  submission_source?: string | null;
+}
+
+export interface MarkSubmittedResponse {
+  job_id: number;
+  application_status: string;
+  review_status: string;
+  applied_at: string | null;
+  submission_source: string | null;
+  message: string;
+  already_submitted: boolean;
 }
 
 export interface PreparePackageResponse {

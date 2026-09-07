@@ -11,6 +11,7 @@ This router manages the authoritative application pipeline:
 """
 import json
 import sqlite3
+import time
 from pathlib import Path
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException
@@ -18,6 +19,7 @@ from app.api.deps import get_db
 from app.api.schemas.application import (
     ApplicationDetail,
     ApplicationSummary,
+    MarkSubmittedResponse,
     PreparePackageResponse,
 )
 from app.api.schemas.job import JobSummary
@@ -76,6 +78,7 @@ def list_applications(db: sqlite3.Connection = Depends(get_db)):
             status = app_meta.get("status", "unknown")
             created_at = app_meta.get("created_at")
             applied_at = app_meta.get("applied_at")
+            submission_source = app_meta.get("submission_source")
 
             resume_path = app_meta.get("resume")
             has_resume = check_resume_exists(resume_path)
@@ -93,6 +96,7 @@ def list_applications(db: sqlite3.Connection = Depends(get_db)):
                     has_resume=has_resume,
                     created_at=created_at,
                     applied_at=applied_at,
+                    submission_source=submission_source,
                 )
             )
         except (json.JSONDecodeError, OSError):
@@ -214,11 +218,17 @@ def get_application_detail(job_id: int, db: sqlite3.Connection = Depends(get_db)
     else:
         automation_status = "completed" if status == "applied" else "idle"
 
-    # Query review_status from DB
-    row = db.execute("SELECT review_status FROM jobs WHERE id = ?", (job_id,)).fetchone()
+    # Query review_status and applied_at from DB
+    row = db.execute("SELECT review_status, applied_at FROM jobs WHERE id = ?", (job_id,)).fetchone()
     db_review_status = row["review_status"] if row else None
+    db_applied_at = row["applied_at"] if row else None
+
+    if db_review_status == "applied":
+        status = "applied"
 
     submission_state = "submitted" if status == "applied" else "pending"
+    applied_at = app_meta.get("applied_at") or db_applied_at
+    submission_source = app_meta.get("submission_source")
 
     return ApplicationDetail(
         job_id=job.get("id", job_id),
@@ -241,7 +251,8 @@ def get_application_detail(job_id: int, db: sqlite3.Connection = Depends(get_db)
         verification_checks=verification_checks,
         submission_state=submission_state,
         created_at=app_meta.get("created_at"),
-        applied_at=app_meta.get("applied_at"),
+        applied_at=applied_at,
+        submission_source=submission_source,
     )
 
 
@@ -310,6 +321,12 @@ def run_application_autofill(job_id: int, db: sqlite3.Connection = Depends(get_d
         raise HTTPException(
             status_code=400,
             detail=f"Cannot run automation: Job #{job_id} review status is '{job['review_status']}'. Only approved jobs can be autofilled.",
+        )
+    # 2b. Guard against already submitted applications
+    if job["review_status"] == "applied":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Job #{job_id} has already been submitted (review_status='applied').",
         )
 
     # 3. Verify package file exists
@@ -380,3 +397,94 @@ def get_application_autofill_status(job_id: int):
         "progress": 0,
         "details": None,
     }
+
+
+@router.post("/{job_id}/mark-submitted", response_model=MarkSubmittedResponse)
+def mark_application_as_submitted(job_id: int, db: sqlite3.Connection = Depends(get_db)):
+    """
+    Explicitly mark an application as submitted externally by human user.
+    Safely cancels any active automation runner for this job and authoritatively updates SQLite + package JSON.
+    """
+    # 1. Verify job exists
+    job = db.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
+    if job is None:
+        raise HTTPException(status_code=404, detail=f"Job with ID {job_id} not found")
+
+    app_file = APPLICATIONS_DIR / f"job_{job_id}.json"
+
+    # Check current DB & package status for idempotency
+    existing_db_review_status = job["review_status"]
+    existing_applied_at = job["applied_at"]
+
+    existing_pkg = None
+    if app_file.exists():
+        try:
+            with open(app_file, "r", encoding="utf-8") as f:
+                existing_pkg = json.load(f)
+        except Exception:
+            pass
+
+    pkg_app_meta = existing_pkg.get("application", {}) if existing_pkg else {}
+    pkg_status = pkg_app_meta.get("status")
+    pkg_applied_at = pkg_app_meta.get("applied_at") or existing_applied_at
+    pkg_source = pkg_app_meta.get("submission_source") or ("manual" if existing_db_review_status == "applied" else None)
+
+    # 2. Idempotency check: if already applied
+    if existing_db_review_status == "applied" or pkg_status == "applied":
+        return MarkSubmittedResponse(
+            job_id=job_id,
+            application_status="applied",
+            review_status="applied",
+            applied_at=pkg_applied_at or existing_applied_at,
+            submission_source=pkg_source or "manual",
+            message=f"Application for Job #{job_id} is already marked as submitted.",
+            already_submitted=True,
+        )
+
+    # 3. Handle active automation safely
+    from app.api.automation import automation_manager
+
+    active_job_id = automation_manager.get_active_job_id()
+    was_automation_active = (active_job_id == job_id)
+    if was_automation_active:
+        automation_manager.cancel()
+
+    # 4. Authoritative Database update
+    timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    db.execute(
+        """
+        UPDATE jobs
+        SET review_status = 'applied',
+            applied_at = ?
+        WHERE id = ?
+        """,
+        (timestamp, job_id),
+    )
+    db.commit()
+
+    # 5. Application Package JSON update
+    if existing_pkg is not None:
+        existing_pkg.setdefault("application", {})["status"] = "applied"
+        existing_pkg["application"]["applied_at"] = timestamp
+        existing_pkg["application"]["submission_source"] = "manual"
+        try:
+            with open(app_file, "w", encoding="utf-8") as f:
+                json.dump(existing_pkg, f, indent=2, ensure_ascii=False)
+        except Exception:
+            pass
+
+    msg = (
+        f"Automation cancelled and application for {job['company']} marked as submitted manually."
+        if was_automation_active
+        else f"Application for {job['company']} marked as submitted manually."
+    )
+
+    return MarkSubmittedResponse(
+        job_id=job_id,
+        application_status="applied",
+        review_status="applied",
+        applied_at=timestamp,
+        submission_source="manual",
+        message=msg,
+        already_submitted=False,
+    )

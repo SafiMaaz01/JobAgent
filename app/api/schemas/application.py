@@ -26,6 +26,7 @@ class ApplicationSummary(BaseModel):
     has_resume: bool = False
     created_at: Optional[str] = None
     applied_at: Optional[str] = None
+    submission_source: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -58,8 +59,22 @@ class ApplicationDetail(BaseModel):
     submission_state: str = "pending"
     created_at: Optional[str] = None
     applied_at: Optional[str] = None
+    submission_source: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class MarkSubmittedResponse(BaseModel):
+    """
+    Response returned when manually marking an application as submitted.
+    """
+    job_id: int
+    application_status: str
+    review_status: str
+    applied_at: Optional[str] = None
+    submission_source: Optional[str] = None
+    message: str
+    already_submitted: bool = False
 
 
 class PreparePackageResponse(BaseModel):

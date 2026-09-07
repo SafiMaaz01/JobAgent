@@ -12,6 +12,7 @@ import {
   JobDetail,
   JobListResponse,
   JobSummary,
+  MarkSubmittedResponse,
   PreparePackageResponse,
   TaskStatus,
   TaskActionResponse,
@@ -141,6 +142,14 @@ export async function prepareApplicationPackage(
   jobId: number
 ): Promise<PreparePackageResponse> {
   return fetchJson<PreparePackageResponse>(`/api/applications/${jobId}/prepare`, {
+    method: "POST",
+  });
+}
+
+export async function markApplicationSubmitted(
+  jobId: number
+): Promise<MarkSubmittedResponse> {
+  return fetchJson<MarkSubmittedResponse>(`/api/applications/${jobId}/mark-submitted`, {
     method: "POST",
   });
 }

@@ -384,7 +384,7 @@ class AutomationManager:
             conn = get_connection()
             cursor = conn.cursor()
             cursor.execute(
-                "UPDATE jobs SET status = 'applied', updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                "UPDATE jobs SET review_status = 'applied', applied_at = CURRENT_TIMESTAMP WHERE id = ?",
                 (job_id,),
             )
             conn.commit()
@@ -395,7 +395,8 @@ class AutomationManager:
                 with package_file.open("r", encoding="utf-8") as f:
                     pkg = json.load(f)
                 pkg.setdefault("application", {})["status"] = "applied"
-                pkg["application"]["submitted_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+                pkg["application"]["applied_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+                pkg["application"]["submission_source"] = "automation"
                 with package_file.open("w", encoding="utf-8") as f:
                     json.dump(pkg, f, indent=2)
             logger.info("Application package and database updated to 'applied' for Job #%s", job_id)

@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { ApplicationDetail, TaskStatus } from "@/lib/types";
-import { startAutofill, getTaskStatus, cancelTask, respondToTask, getApplicationDetail } from "@/lib/api";
+import { startAutofill, getTaskStatus, cancelTask, respondToTask, getApplicationDetail, markApplicationSubmitted } from "@/lib/api";
 import ScoreRing from "@/components/ui/ScoreRing";
 import { ReviewStatusBadge } from "./StatusBadge";
 import { useToast } from "@/components/ui/Toast";
@@ -36,6 +36,8 @@ export default function ApplicationDetailClient({ initialApp }: ApplicationDetai
   const [showLogs, setShowLogs] = useState(true);
   const [internshipInput, setInternshipInput] = useState("1");
   const [activeTab, setActiveTab] = useState<"overview" | "answers" | "candidate" | "resume">("overview");
+  const [showMarkSubmittedModal, setShowMarkSubmittedModal] = useState(false);
+  const [isSubmittingManual, setIsSubmittingManual] = useState(false);
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
   const { showToast } = useToast();
 
@@ -46,7 +48,7 @@ export default function ApplicationDetailClient({ initialApp }: ApplicationDetai
   const preferences = (candidate.preferences as Record<string, string>) || {};
   const match = app.match_details;
 
-  const isApplied = app.application_status === "applied" || app.application_status === "submitted";
+  const isApplied = app.review_status === "applied";
   const isApproved = app.review_status === "approved";
   const canRunAutofill = isApproved && !isApplied && !isRunning;
 
@@ -134,6 +136,33 @@ export default function ApplicationDetailClient({ initialApp }: ApplicationDetai
     }
   };
 
+  const handleConfirmMarkSubmitted = async () => {
+    setIsSubmittingManual(true);
+    try {
+      const res = await markApplicationSubmitted(app.job_id);
+      setIsRunning(false);
+      setShowMarkSubmittedModal(false);
+
+      const freshApp = await getApplicationDetail(app.job_id);
+      setApp(freshApp);
+      await checkTaskStatus();
+
+      showToast(
+        "Application Marked as Submitted",
+        res.message,
+        "success"
+      );
+    } catch (err: unknown) {
+      showToast(
+        "Action Failed",
+        err instanceof Error ? err.message : "Failed to mark application as submitted",
+        "error"
+      );
+    } finally {
+      setIsSubmittingManual(false);
+    }
+  };
+
   const currentDetails = taskStatus?.details;
   const isWaitingForConfirmation = taskStatus?.status === "waiting_for_confirmation";
   const isWaitingForInput = taskStatus?.status === "waiting_for_input";
@@ -212,6 +241,17 @@ export default function ApplicationDetailClient({ initialApp }: ApplicationDetai
               </a>
             )}
 
+            {!isApplied && (
+              <button
+                onClick={() => setShowMarkSubmittedModal(true)}
+                className="btn-secondary"
+                style={{ padding: "8px 14px", fontSize: "12.5px" }}
+              >
+                <CheckCircle2 size={14} color="var(--success)" />
+                <span>Mark as Submitted</span>
+              </button>
+            )}
+
             {canRunAutofill && (
               <button onClick={handleStartAutofill} className="btn-primary">
                 <Play size={15} />
@@ -220,17 +260,24 @@ export default function ApplicationDetailClient({ initialApp }: ApplicationDetai
             )}
 
             {isApplied && (
-              <span className="badge-semantic badge-submitted" style={{ padding: "6px 12px", fontSize: "12px" }}>
-                <CheckCircle2 size={14} />
-                <span>Application Submitted</span>
-              </span>
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "4px" }}>
+                <span className="badge-semantic badge-submitted" style={{ padding: "6px 12px", fontSize: "12px" }}>
+                  <CheckCircle2 size={14} />
+                  <span>Application Submitted</span>
+                </span>
+                {app.applied_at && (
+                  <span className="mono-text" style={{ fontSize: "11px", color: "var(--text-muted)" }}>
+                    {app.submission_source === "manual" ? "Submitted manually" : "Submitted"} • {app.applied_at.replace("T", " ").split(".")[0]}
+                  </span>
+                )}
+              </div>
             )}
           </div>
         </div>
       </div>
 
       {/* Authoritative Human Confirmation Gate Banner (Directive #14) */}
-      {isWaitingForConfirmation && isTaskActiveForThisJob && (
+      {!isApplied && isWaitingForConfirmation && isTaskActiveForThisJob && (
         <div
           className="glass-card"
           style={{
@@ -276,6 +323,22 @@ export default function ApplicationDetailClient({ initialApp }: ApplicationDetai
               <Square size={15} />
               <span>Cancel & Close Browser</span>
             </button>
+
+            <button
+              onClick={() => setShowMarkSubmittedModal(true)}
+              className="btn-secondary"
+              style={{
+                padding: "6px 14px",
+                fontSize: "12px",
+                background: "var(--success-surface)",
+                borderColor: "var(--success-border)",
+                color: "var(--success)",
+              }}
+            >
+              <CheckCircle2 size={14} />
+              <span>Mark as Submitted Externally</span>
+            </button>
+
             <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>
               To complete final submission, inspect the open Chromium browser window and confirm human submission.
             </span>
@@ -452,6 +515,123 @@ export default function ApplicationDetailClient({ initialApp }: ApplicationDetai
               <div style={{ fontSize: "12px", color: app.resume_exists ? "var(--success)" : "var(--danger)", marginTop: "2px" }}>
                 {app.resume_exists ? "✓ Local PDF file verified" : "✕ File missing on disk"}
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Dialog for External Submission Confirmation */}
+      {showMarkSubmittedModal && (
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: "rgba(10, 15, 29, 0.8)",
+            backdropFilter: "blur(6px)",
+            zIndex: 9999,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "16px",
+          }}
+          onClick={(e) => {
+            if (e.target === e.currentTarget && !isSubmittingManual) {
+              setShowMarkSubmittedModal(false);
+            }
+          }}
+        >
+          <div
+            className="glass-card"
+            style={{
+              width: "100%",
+              maxWidth: "480px",
+              padding: "28px",
+              borderRadius: "var(--radius-lg)",
+              background: "linear-gradient(135deg, rgba(19, 27, 46, 0.98) 0%, rgba(26, 36, 61, 0.98) 100%)",
+              boxShadow: "0 20px 40px rgba(0, 0, 0, 0.6), 0 0 1px 1px var(--border-glow)",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "16px" }}>
+              <div
+                style={{
+                  width: "40px",
+                  height: "40px",
+                  borderRadius: "var(--radius-md)",
+                  background: "var(--success-surface)",
+                  border: "1px solid var(--success-border)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  color: "var(--success)",
+                  flexShrink: 0,
+                }}
+              >
+                <CheckCircle2 size={22} />
+              </div>
+              <div>
+                <h3 style={{ fontSize: "17px", fontWeight: "800", color: "var(--text-primary)" }}>
+                  Confirm external submission
+                </h3>
+                <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>
+                  Job #{app.job_id} • {app.company}
+                </span>
+              </div>
+            </div>
+
+            <p
+              style={{
+                fontSize: "13.5px",
+                color: "var(--text-secondary)",
+                lineHeight: "1.6",
+                marginBottom: "20px",
+                background: "var(--bg-surface-0)",
+                padding: "14px",
+                borderRadius: "var(--radius-md)",
+                border: "1px solid var(--border-subtle)",
+              }}
+            >
+              Only use this if you have already submitted this application on the external job site. JobAgent will not submit anything.
+            </p>
+
+            {isTaskActiveForThisJob && (
+              <div style={{ fontSize: "12px", color: "var(--warning)", marginBottom: "20px", display: "flex", alignItems: "center", gap: "6px" }}>
+                <AlertTriangle size={14} />
+                <span>Active browser automation runner will be cancelled safely.</span>
+              </div>
+            )}
+
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: "12px" }}>
+              <button
+                onClick={() => setShowMarkSubmittedModal(false)}
+                disabled={isSubmittingManual}
+                className="btn-secondary"
+                style={{ padding: "8px 16px", fontSize: "13px" }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmMarkSubmitted}
+                disabled={isSubmittingManual}
+                className="btn-primary"
+                style={{
+                  padding: "8px 18px",
+                  fontSize: "13px",
+                  background: "var(--success)",
+                  borderColor: "var(--success-border)",
+                }}
+              >
+                {isSubmittingManual ? (
+                  <>
+                    <Loader2 size={15} className="animate-spin" />
+                    <span>Marking Submitted...</span>
+                  </>
+                ) : (
+                  <span>Yes, Mark Submitted</span>
+                )}
+              </button>
             </div>
           </div>
         </div>
