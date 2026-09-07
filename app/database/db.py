@@ -40,7 +40,8 @@ def initialize_database():
     connection = get_connection()
 
     # Create master jobs table
-    connection.execute("""
+    connection.execute(
+        """
         CREATE TABLE IF NOT EXISTS jobs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
 
@@ -70,9 +71,13 @@ def initialize_database():
 
             applied_at TEXT,
 
+            dedup_key TEXT,
+            source_provenance TEXT,
+
             UNIQUE(source, external_id)
         )
-    """)
+        """
+    )
 
     # Non-destructive schema migrations:
     # Add columns to existing databases created before the approval
@@ -99,6 +104,52 @@ def initialize_database():
         connection.execute(
             "ALTER TABLE jobs ADD COLUMN match_details TEXT"
         )
+
+    # Add dedup_key column if missing
+    if "dedup_key" not in columns:
+        connection.execute(
+            "ALTER TABLE jobs ADD COLUMN dedup_key TEXT"
+        )
+    # Add source_provenance column if missing
+    if "source_provenance" not in columns:
+        connection.execute(
+            "ALTER TABLE jobs ADD COLUMN source_provenance TEXT"
+        )
+
+    # Safe non-destructive backfill for historical rows that lack dedup_key or provenance
+    rows_needing_backfill = connection.execute(
+        "SELECT id, source, external_id, url FROM jobs WHERE dedup_key IS NULL OR source_provenance IS NULL"
+    ).fetchall()
+
+    if rows_needing_backfill:
+        import json
+        import hashlib
+        import urllib.parse
+
+        def _compute_key(raw_url):
+            if not raw_url:
+                return None
+            parsed = urllib.parse.urlparse(raw_url.strip())
+            norm = urllib.parse.urlunparse(
+                (parsed.scheme.lower(), parsed.netloc.lower(), parsed.path.rstrip('/'), "", parsed.query, "")
+            )
+            return hashlib.sha256(norm.encode("utf-8")).hexdigest()
+
+        for row in rows_needing_backfill:
+            key = _compute_key(row["url"])
+            prov_json = json.dumps(
+                [{"source": row["source"], "external_id": str(row["external_id"]), "url": row["url"] or ""}],
+                ensure_ascii=False,
+            )
+            connection.execute(
+                """
+                UPDATE jobs
+                SET dedup_key = COALESCE(dedup_key, ?),
+                    source_provenance = COALESCE(source_provenance, ?)
+                WHERE id = ?
+                """,
+                (key, prov_json, row["id"]),
+            )
 
     connection.commit()
     connection.close()

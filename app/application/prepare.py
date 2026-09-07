@@ -98,6 +98,24 @@ def create_application_package(job, answer_bank):
         },
     }
 
+    # If a tailored resume already exists for this job, attach its metadata
+    current_resume_file = APPLICATIONS_DIR / f"job_{job['id']}" / "resume" / "current.json"
+    if current_resume_file.exists():
+        try:
+            with open(current_resume_file, "r", encoding="utf-8") as rf:
+                r_meta = json.load(rf)
+            package["application"]["tailored_resume"] = {
+                "version": r_meta.get("current_version", 1),
+                "status": r_meta.get("status", "pending_review"),
+                "docx_path": r_meta.get("docx_path"),
+                "pdf_path": r_meta.get("pdf_path"),
+                "ats_score": r_meta.get("ats_score", 0),
+            }
+            if r_meta.get("status") == "approved" and r_meta.get("pdf_path"):
+                package["application"]["resume"] = r_meta.get("pdf_path")
+        except Exception:
+            pass
+
     filename = f"job_{job['id']}.json"
     output_file = APPLICATIONS_DIR / filename
 

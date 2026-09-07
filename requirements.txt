@@ -3,3 +3,5 @@ playwright
 fastapi
 uvicorn
 pydantic
+python-docx
+

@@ -28,5 +28,11 @@
             "company": "Eudia",
             "board_token": "eudia"
         }
-    ]
+    ],
+    "lever": [
+        {"company": "LinkedIn", "slug": "linkedin"}
+    ],
+    "remoteok": {
+        "enabled": true
+    }
 }

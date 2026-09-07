@@ -60,6 +60,7 @@ class ApplicationDetail(BaseModel):
     created_at: Optional[str] = None
     applied_at: Optional[str] = None
     submission_source: Optional[str] = None
+    tailored_resume: Optional[Dict[str, Any]] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -85,4 +86,58 @@ class PreparePackageResponse(BaseModel):
     status: str
     message: str
     package_file: str
+
+
+class TailoredResumeDetail(BaseModel):
+    """
+    Detail schema for tailored resume metadata and ATS breakdown.
+    """
+    job_id: int
+    current_version: Optional[int] = None
+    status: str
+    approved_version: Optional[int] = None
+    ats_score: Optional[int] = None
+    score_category: Optional[str] = None
+    docx_path: Optional[str] = None
+    pdf_path: Optional[str] = None
+    last_generated_at: Optional[str] = None
+    review_feedback: Optional[str] = None
+    ats_analysis: Optional[Dict[str, Any]] = None
+    validation: Optional[Dict[str, Any]] = None
+    resume_data: Optional[Dict[str, Any]] = None
+
+
+class ResumeGenerateResponse(BaseModel):
+    """
+    Response model for resume generation endpoint.
+    """
+    job_id: int
+    version: int
+    status: str
+    ats_score: int
+    docx_path: str
+    pdf_path: str
+    validation: Dict[str, Any]
+    ats_analysis: Dict[str, Any]
+    message: str
+
+
+class ResumeReviewRequest(BaseModel):
+    """
+    Request model for human review gate.
+    """
+    status: str  # "approved" | "rejected"
+    feedback: Optional[str] = None
+
+
+class ResumeReviewResponse(BaseModel):
+    """
+    Response model for human review gate.
+    """
+    job_id: int
+    status: str
+    current_version: int
+    approved_version: Optional[int] = None
+    message: str
+
 

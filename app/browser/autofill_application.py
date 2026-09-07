@@ -6,6 +6,7 @@ from playwright.sync_api import sync_playwright
 
 from app.application.answers import save_answer
 from app.application.question_resolver import resolve_question
+from app.resume.resolver import resolve_application_resume
 
 
 BASE_DIR = Path(__file__).resolve().parents[2]
@@ -2118,6 +2119,7 @@ def verify_application_state(
     profile,
     handled_questions,
     profile_fields=None,
+    resume_filename=None,
 ):
     """Read-only verification of the browser state."""
 
@@ -2159,11 +2161,12 @@ def verify_application_state(
             )
         )
 
+    expected_resume_name = resume_filename or RESUME_PATH.name
     verification.append(
         verify_file_control(
             page,
             "resume",
-            RESUME_PATH.name,
+            expected_resume_name,
             "Resume",
         )
     )
@@ -3427,6 +3430,22 @@ def main(package_path=None):
     else:
         application = load_application()
 
+    # -------------------------------------------------
+    # Resume Safety Gate Resolution
+    # -------------------------------------------------
+    resume_resolution = resolve_application_resume(application)
+    if not resume_resolution.get("allowed_to_autofill"):
+        print()
+        print("=" * 80)
+        print("RESUME SAFETY GATE BLOCKED")
+        print("=" * 80)
+        print()
+        print(resume_resolution.get("reason"))
+        print()
+        raise RuntimeError(f"RESUME SAFETY GATE BLOCKED: {resume_resolution.get('reason')}")
+
+    target_resume_path = Path(resume_resolution["path"])
+
     job = application.get(
         "job",
         {}
@@ -3632,20 +3651,20 @@ def main(package_path=None):
         )
 
         print(
-            "Uploading resume..."
+            f"Uploading resume from {target_resume_path} (mode: {resume_resolution.get('mode')})..."
         )
 
-        if not RESUME_PATH.exists():
+        if not target_resume_path.exists():
 
             raise FileNotFoundError(
                 f"Resume not found: "
-                f"{RESUME_PATH}"
+                f"{target_resume_path}"
             )
 
         form_page.locator(
             "#resume"
         ).set_input_files(
-            str(RESUME_PATH)
+            str(target_resume_path)
         )
 
         print(
@@ -3708,6 +3727,7 @@ def main(package_path=None):
             profile,
             results["handled_questions"],
             profile_fields=profile_fields,
+            resume_filename=target_resume_path.name,
         )
 
         print()

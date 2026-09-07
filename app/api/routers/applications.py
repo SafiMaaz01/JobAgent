@@ -12,8 +12,9 @@ This router manages the authoritative application pipeline:
 import json
 import sqlite3
 import time
+import tempfile
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from app.api.deps import get_db
 from app.api.schemas.application import (
@@ -21,12 +22,25 @@ from app.api.schemas.application import (
     ApplicationSummary,
     MarkSubmittedResponse,
     PreparePackageResponse,
+    TailoredResumeDetail,
+    ResumeGenerateResponse,
+    ResumeReviewRequest,
+    ResumeReviewResponse,
 )
 from app.api.schemas.job import JobSummary
 from app.application.prepare import (
     RESUME_FILE,
     create_application_package,
     load_answer_bank,
+)
+from app.resume.tailor import generate_tailored_resume
+from app.resume.builder_docx import build_docx_resume
+from app.resume.builder_pdf import build_pdf_resume
+from app.resume.storage import (
+    load_current_resume_meta,
+    save_resume_version,
+    update_resume_review_status,
+    get_resume_dir,
 )
 
 router = APIRouter(prefix="/api/applications", tags=["Applications"])
@@ -230,6 +244,8 @@ def get_application_detail(job_id: int, db: sqlite3.Connection = Depends(get_db)
     applied_at = app_meta.get("applied_at") or db_applied_at
     submission_source = app_meta.get("submission_source")
 
+    tailored_meta = load_current_resume_meta(job_id)
+
     return ApplicationDetail(
         job_id=job.get("id", job_id),
         company=job.get("company", "Unknown"),
@@ -253,6 +269,7 @@ def get_application_detail(job_id: int, db: sqlite3.Connection = Depends(get_db)
         created_at=app_meta.get("created_at"),
         applied_at=applied_at,
         submission_source=submission_source,
+        tailored_resume=tailored_meta,
     )
 
 
@@ -488,3 +505,151 @@ def mark_application_as_submitted(job_id: int, db: sqlite3.Connection = Depends(
         message=msg,
         already_submitted=False,
     )
+
+
+@router.get("/{job_id}/resume", response_model=TailoredResumeDetail)
+def get_job_resume_detail(job_id: int, db: sqlite3.Connection = Depends(get_db)):
+    """Fetch tailored resume details and ATS breakdown for a job."""
+    job = db.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
+    if job is None:
+        raise HTTPException(status_code=404, detail=f"Job with ID {job_id} not found")
+
+    meta = load_current_resume_meta(job_id)
+    if not meta:
+        return TailoredResumeDetail(
+            job_id=job_id,
+            status="not_generated",
+        )
+
+    v_num = meta.get("current_version")
+    ats_analysis = None
+    validation = None
+    resume_data = None
+
+    if v_num:
+        v_dir = get_resume_dir(job_id) / "versions" / f"v{v_num}"
+        try:
+            if (v_dir / "ats_analysis.json").exists():
+                with open(v_dir / "ats_analysis.json", "r", encoding="utf-8") as f:
+                    ats_analysis = json.load(f)
+            if (v_dir / "validation.json").exists():
+                with open(v_dir / "validation.json", "r", encoding="utf-8") as f:
+                    validation = json.load(f)
+            if (v_dir / "resume_tailored.json").exists():
+                with open(v_dir / "resume_tailored.json", "r", encoding="utf-8") as f:
+                    resume_data = json.load(f)
+        except Exception:
+            pass
+
+    return TailoredResumeDetail(
+        job_id=job_id,
+        current_version=meta.get("current_version"),
+        status=meta.get("status", "pending_review"),
+        approved_version=meta.get("approved_version"),
+        ats_score=meta.get("ats_score"),
+        score_category=meta.get("score_category"),
+        docx_path=meta.get("docx_path"),
+        pdf_path=meta.get("pdf_path"),
+        last_generated_at=meta.get("last_generated_at"),
+        review_feedback=meta.get("review_feedback"),
+        ats_analysis=ats_analysis,
+        validation=validation,
+        resume_data=resume_data,
+    )
+
+
+@router.post("/{job_id}/resume/generate", response_model=ResumeGenerateResponse)
+def generate_resume_for_job(job_id: int, db: sqlite3.Connection = Depends(get_db)):
+    """Generate or regenerate tailored DOCX + PDF resume with deterministic ATS analysis."""
+    job = db.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
+    if job is None:
+        raise HTTPException(status_code=404, detail=f"Job with ID {job_id} not found")
+
+    if job["review_status"] != "approved":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Job #{job_id} ({job['company']}) has status '{job['review_status']}'. Only approved jobs can have tailored resumes generated.",
+        )
+
+    job_dict = dict(job)
+    try:
+        tailor_result = generate_tailored_resume(job_dict)
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to generate tailored resume: {str(e)}",
+        )
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        temp_dir_path = Path(temp_dir)
+        temp_docx = temp_dir_path / "resume.docx"
+        temp_pdf = temp_dir_path / "resume.pdf"
+
+        try:
+            build_docx_resume(tailor_result["resume_data"], temp_docx)
+            build_pdf_resume(tailor_result["resume_data"], temp_pdf)
+        except Exception as e:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to render resume documents: {str(e)}",
+            )
+
+        saved_meta = save_resume_version(job_id, tailor_result, temp_docx, temp_pdf)
+
+    return ResumeGenerateResponse(
+        job_id=job_id,
+        version=saved_meta["current_version"],
+        status=saved_meta["status"],
+        ats_score=saved_meta["ats_score"],
+        docx_path=saved_meta["docx_path"],
+        pdf_path=saved_meta["pdf_path"],
+        validation=tailor_result["validation"],
+        ats_analysis=tailor_result["ats_analysis"],
+        message=f"Tailored resume v{saved_meta['current_version']} generated successfully (ATS Score: {saved_meta['ats_score']}/100). Status: pending_review.",
+    )
+
+
+@router.post("/{job_id}/resume/review", response_model=ResumeReviewResponse)
+def review_job_resume(
+    job_id: int,
+    body: ResumeReviewRequest,
+    db: sqlite3.Connection = Depends(get_db),
+):
+    """Explicit human review decision (approve or reject) for tailored resume."""
+    job = db.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
+    if job is None:
+        raise HTTPException(status_code=404, detail=f"Job with ID {job_id} not found")
+
+    if body.status not in ("approved", "rejected"):
+        raise HTTPException(
+            status_code=400,
+            detail="Review status must be either 'approved' or 'rejected'.",
+        )
+
+    try:
+        updated = update_resume_review_status(job_id, body.status, body.feedback)
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No tailored resume found to review for job {job_id}.",
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to update resume review status: {str(e)}",
+        )
+
+    msg = (
+        f"Resume version {updated.get('current_version')} approved! Autofill is now enabled."
+        if body.status == "approved"
+        else f"Resume version {updated.get('current_version')} marked as rejected."
+    )
+
+    return ResumeReviewResponse(
+        job_id=job_id,
+        status=updated["status"],
+        current_version=updated["current_version"],
+        approved_version=updated.get("approved_version"),
+        message=msg,
+    )
+
